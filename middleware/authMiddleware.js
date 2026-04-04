@@ -1,59 +1,98 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { isBlacklisted } = require('../utils/tokenBlacklist');
+const { unauthorized, forbidden } = require('../utils/apiResponse');
 
+// ─── protect ─────────────────────────────────────────────────────────────────
+// Verifies the JWT, checks blacklist & account status, attaches req.user.
+// Use on every authenticated route.
+// ─────────────────────────────────────────────────────────────────────────────
 const protect = async (req, res, next) => {
   let token;
 
-  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+  if (
+    req.headers.authorization &&
+    req.headers.authorization.startsWith('Bearer')
+  ) {
     try {
       token = req.headers.authorization.split(' ')[1];
 
+      // Blacklist check
       const blacklisted = await isBlacklisted(token);
       if (blacklisted) {
-        return res.status(401).json({ message: 'Not authorized, token revoked' });
+        return unauthorized(res, 'Not authorized, token revoked');
       }
 
-      // Decode token
+      // Verify & decode
       const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
-      
+
       req.user = await User.findById(decoded.id).select('-password');
 
       if (!req.user) {
-        return res.status(401).json({ message: 'Not authorized, user missing' });
+        return unauthorized(res, 'Not authorized, user not found');
       }
 
+      // Account status guard
       if (req.user.status === 'suspended' || req.user.status === 'banned') {
-        return res.status(403).json({ message: 'Account is suspended or banned' });
+        return forbidden(res, 'Account is suspended or banned');
       }
 
       if (req.user.status !== 'active') {
-        return res.status(401).json({ message: 'Not authorized, account inactive' });
+        return unauthorized(res, 'Not authorized, account inactive');
       }
 
-      next();
+      return next();
     } catch (error) {
-      console.error(error);
-      return res.status(401).json({ message: 'Not authorized, token failed' });
+      console.error('[AuthMiddleware]', error.message);
+      return unauthorized(res, 'Not authorized, token invalid');
     }
   }
 
   if (!token) {
-    return res.status(401).json({ message: 'Not authorized, no token' });
+    return unauthorized(res, 'Not authorized, no token provided');
   }
 };
 
-// Check if user has specific permission atom
+// ─── authProtected ────────────────────────────────────────────────────────────
+// Role-based guard. Call AFTER protect().
+//
+// Usage examples:
+//   router.get('/admin-only', protect, authProtected('admin'), handler);
+//   router.get('/staff',      protect, authProtected('admin', 'manager'), handler);
+//   router.get('/any-role',   protect, authProtected(), handler);  // same as protect alone
+// ─────────────────────────────────────────────────────────────────────────────
+const authProtected = (...roles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return unauthorized(res, 'Not authorized');
+    }
+
+    // If no roles specified → any authenticated user passes
+    if (roles.length === 0) {
+      return next();
+    }
+
+    if (!roles.includes(req.user.role)) {
+      return forbidden(
+        res,
+        `Access denied. Required role: [${roles.join(', ')}]. Your role: ${req.user.role}`
+      );
+    }
+
+    return next();
+  };
+};
+
+// ─── requirePermission ────────────────────────────────────────────────────────
+// Atom-level permission guard. Admins bypass implicitly.
+// ─────────────────────────────────────────────────────────────────────────────
 const requirePermission = (atom) => {
   return (req, res, next) => {
     if (!req.user) {
-      return res.status(401).json({ message: 'Not authorized' });
+      return unauthorized(res, 'Not authorized');
     }
 
-    // Role-based implicit full access for simplicity?
-    // "No page is locked to a specific role. Access is granted atom by atom."
-    // However, Admin traditionally has all, or we explicitly assign atoms to Admin too.
-    // Let's make Admin have everything implicitly to avoid lockout.
+    // Admin has everything
     if (req.user.role === 'admin') {
       return next();
     }
@@ -62,8 +101,8 @@ const requirePermission = (atom) => {
       return next();
     }
 
-    return res.status(403).json({ message: `Forbidden: Missing required permission '${atom}'` });
+    return forbidden(res, `Forbidden: missing required permission '${atom}'`);
   };
 };
 
-module.exports = { protect, requirePermission };
+module.exports = { protect, authProtected, requirePermission };

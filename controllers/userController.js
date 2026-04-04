@@ -1,184 +1,380 @@
-const User = require('../models/User');
-const AuditLog = require('../models/AuditLog');
+const path   = require('path');
+const fs     = require('fs');
 const bcrypt = require('bcrypt');
 
-// Helper to check grant ceiling
-const checkGrantCeiling = (managerPermissions, requestedPermissions) => {
-  for (let perm of requestedPermissions) {
-    if (!managerPermissions.includes(perm)) {
-      return false; // Found a permission the manager doesn't have
-    }
-  }
-  return true;
+const User     = require('../models/User');
+const AuditLog = require('../models/AuditLog');
+const {
+  successResponse,
+  createdResponse,
+  paginatedResponse,
+  errorResponse,
+  notFound,
+  forbidden,
+  serverError,
+} = require('../utils/apiResponse');
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Build the public avatar URL from a filename.
+ * Pattern: http://<HOST>:<PORT>/uploads/users/<filename>
+ */
+const buildAvatarUrl = (req, filename) => {
+  const protocol = req.protocol;
+  const host     = req.get('host'); // e.g. 172.17.0.1:5000
+  return `${protocol}://${host}/uploads/users/${filename}`;
 };
 
-// @desc    Get all users (scoping: Admin sees all, Manager sees their agents/customers, Agent sees none/customers if permitted)
-// @route   GET /api/users
-// @access  Private
-const getUsers = async (req, res) => {
+/**
+ * Delete the old avatar file from disk when a user uploads a new one.
+ * Silently ignores errors (file may already be absent).
+ */
+const deleteOldAvatar = (avatarUrl) => {
+  if (!avatarUrl) return;
   try {
-    let users;
-    if (req.user.role === 'admin') {
-      users = await User.find({}).select('-password');
-    } else {
-      // Return users managed by this user
-      users = await User.find({ managedBy: req.user._id }).select('-password');
+    // URL → filename extraction
+    const filename = avatarUrl.split('/uploads/users/').pop();
+    if (!filename) return;
+    const filepath = path.join(__dirname, '..', 'uploads', 'users', filename);
+    if (fs.existsSync(filepath)) {
+      fs.unlinkSync(filepath);
     }
-    res.json(users);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+  } catch (_) {
+    // non-critical — log but don't throw
+    console.warn('[deleteOldAvatar] Could not remove old avatar:', avatarUrl);
   }
 };
 
-// @desc    Register a new user (or Admin/Manager creating a lower role)
-// @route   POST /api/users
-// @access  Private
+/**
+ * Grant-ceiling check: the requester cannot grant permissions they don't own.
+ */
+const checkGrantCeiling = (managerPerms, requestedPerms) =>
+  requestedPerms.every((p) => managerPerms.includes(p));
+
+// ─── GET /api/users/me ────────────────────────────────────────────────────────
+// @desc  Get own profile
+// @access Private (any authenticated user)
+const getMyProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('-password -refreshToken');
+    if (!user) return notFound(res, 'User not found');
+    return successResponse(res, 'Profile fetched successfully', user);
+  } catch (err) {
+    return serverError(res, err);
+  }
+};
+
+// ─── PUT /api/users/me ────────────────────────────────────────────────────────
+// @desc  Update own profile (name, phone, location) + optional avatar upload
+// @access Private (any authenticated user)
+// @body  multipart/form-data  { name?, phone?, location? }
+// @file  field: avatar  (image file, optional)
+const updateMyProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return notFound(res, 'User not found');
+
+    const { name, phone, location } = req.body;
+
+    if (name     !== undefined) user.name     = name.trim();
+    if (phone    !== undefined) user.phone    = phone.trim();
+    if (location !== undefined) user.location = location.trim();
+
+    // Avatar upload handling
+    if (req.file) {
+      // Remove previous avatar from disk (cleanup)
+      deleteOldAvatar(user.avatar);
+      // Build the canonical public URL for this file
+      user.avatar = buildAvatarUrl(req, req.file.filename);
+    }
+
+    const updated = await user.save();
+
+    return successResponse(res, 'Profile updated successfully', {
+      _id:      updated._id,
+      name:     updated.name,
+      email:    updated.email,
+      phone:    updated.phone,
+      location: updated.location,
+      avatar:   updated.avatar,
+      role:     updated.role,
+    });
+  } catch (err) {
+    return serverError(res, err);
+  }
+};
+
+// ─── PUT /api/users/me/change-password ────────────────────────────────────────
+// @desc  Change own password
+// @access Private (any authenticated user)
+// @body  { current_password, new_password, confirm_password }
+const changePassword = async (req, res) => {
+  try {
+    const { current_password, new_password, confirm_password } = req.body;
+
+    // ── Validation ──
+    if (!current_password || !new_password || !confirm_password) {
+      return errorResponse(res, 'All password fields are required', 400);
+    }
+
+    if (new_password !== confirm_password) {
+      return errorResponse(res, 'New password and confirm password do not match', 400);
+    }
+
+    if (new_password.length < 6) {
+      return errorResponse(res, 'New password must be at least 6 characters', 400);
+    }
+
+    if (current_password === new_password) {
+      return errorResponse(res, 'New password must be different from the current password', 400);
+    }
+
+    // Fetch user with password field
+    const user = await User.findById(req.user._id).select('+password');
+    if (!user) return notFound(res, 'User not found');
+
+    // Verify current password
+    const isMatch = await bcrypt.compare(current_password, user.password);
+    if (!isMatch) {
+      return errorResponse(res, 'Current password is incorrect', 401);
+    }
+
+    // Hash & save
+    const salt         = await bcrypt.genSalt(10);
+    user.password      = await bcrypt.hash(new_password, salt);
+    user.refreshToken  = ''; // invalidate existing refresh tokens
+    await user.save();
+
+    return successResponse(res, 'Password changed successfully');
+  } catch (err) {
+    return serverError(res, err);
+  }
+};
+
+// ─── GET /api/users ───────────────────────────────────────────────────────────
+// @desc  Get all users — Admin only
+//        Supports: search (name/email), filter by role/status, pagination
+// @access Private — Admin
+// @query { search, role, status, page, limit, sortBy, sortOrder }
+const getAllUsers = async (req, res) => {
+  try {
+    const {
+      search    = '',
+      role      = '',
+      status    = '',
+      page      = 1,
+      limit     = 10,
+      sortBy    = 'createdAt',
+      sortOrder = 'desc',
+    } = req.query;
+
+    const pageNum  = Math.max(1, parseInt(page,  10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
+    const skip     = (pageNum - 1) * limitNum;
+
+    // ── Build filter ──
+    const filter = {};
+
+    if (search.trim()) {
+      filter.$or = [
+        { name:  { $regex: search.trim(), $options: 'i' } },
+        { email: { $regex: search.trim(), $options: 'i' } },
+      ];
+    }
+
+    if (role.trim())   filter.role   = role.trim();
+    if (status.trim()) filter.status = status.trim();
+
+    // ── Sort ──
+    const allowedSortFields = ['createdAt', 'name', 'email', 'role', 'status'];
+    const sortField = allowedSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    const sortDir   = sortOrder === 'asc' ? 1 : -1;
+
+    // ── Execute query ──
+    const [users, total] = await Promise.all([
+      User.find(filter)
+        .select('-password -refreshToken -resetPasswordOtp -resetPasswordExpires -verificationOtp -verificationExpires')
+        .sort({ [sortField]: sortDir })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      User.countDocuments(filter),
+    ]);
+
+    return paginatedResponse(res, 'Users fetched successfully', users, {
+      page:  pageNum,
+      limit: limitNum,
+      total,
+    });
+  } catch (err) {
+    return serverError(res, err);
+  }
+};
+
+// ─── DELETE /api/users/:id ────────────────────────────────────────────────────
+// @desc  Delete a user by ID — Admin only
+// @access Private — Admin
+const deleteUserById = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return notFound(res, 'User not found');
+
+    // Admin cannot delete themselves
+    if (req.user._id.toString() === user._id.toString()) {
+      return forbidden(res, 'Admins cannot delete their own account');
+    }
+
+    // Cleanup avatar from disk
+    deleteOldAvatar(user.avatar);
+
+    await User.findByIdAndDelete(req.params.id);
+
+    await AuditLog.create({
+      user:    req.user._id,
+      action:  'DELETE_USER',
+      target:  user._id,
+      details: { deletedEmail: user.email, deletedRole: user.role },
+    });
+
+    return successResponse(res, `User '${user.name}' deleted successfully`);
+  } catch (err) {
+    return serverError(res, err);
+  }
+};
+
+// ─── GET /api/users/:id ─────────────────────────────────────────────────────
+// @desc  Get single user by ID — Admin only
+// @access Private — Admin
+const getUserById = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id)
+      .select('-password -refreshToken -resetPasswordOtp -resetPasswordExpires -verificationOtp -verificationExpires');
+    if (!user) return notFound(res, 'User not found');
+    return successResponse(res, 'User fetched successfully', user);
+  } catch (err) {
+    return serverError(res, err);
+  }
+};
+
+// ─── PUT /api/users/:id ──────────────────────────────────────────────────────
+// @desc  Admin update any user (role, status, permissions, etc.)
+// @access Private — Admin
+const updateUserById = async (req, res) => {
+  const { name, role, permissions, status, phone, location } = req.body;
+
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return notFound(res, 'User not found');
+
+    // Non-admins can only edit users they manage
+    if (
+      req.user.role !== 'admin' &&
+      (!user.managedBy || user.managedBy.toString() !== req.user._id.toString())
+    ) {
+      return forbidden(res, 'Not authorized to edit this user');
+    }
+
+    // Grant-ceiling check for non-admins
+    if (req.user.role !== 'admin' && permissions) {
+      if (!checkGrantCeiling(req.user.permissions || [], permissions)) {
+        return forbidden(res, 'Grant ceiling violation: you cannot grant permissions you do not own');
+      }
+    }
+
+    if (name        !== undefined) user.name        = name;
+    if (phone       !== undefined) user.phone       = phone;
+    if (location    !== undefined) user.location    = location;
+    if (permissions !== undefined) user.permissions = permissions;
+    if (status      !== undefined) user.status      = status;
+
+    // Only Admin can change role
+    if (role !== undefined && req.user.role === 'admin') user.role = role;
+
+    const updated = await user.save();
+
+    await AuditLog.create({
+      user:    req.user._id,
+      action:  'UPDATE_USER',
+      target:  updated._id,
+      details: { updatedFields: req.body },
+    });
+
+    return successResponse(res, 'User updated successfully', {
+      _id:         updated._id,
+      name:        updated.name,
+      email:       updated.email,
+      role:        updated.role,
+      status:      updated.status,
+      phone:       updated.phone,
+      location:    updated.location,
+      permissions: updated.permissions,
+      avatar:      updated.avatar,
+    });
+  } catch (err) {
+    return serverError(res, err);
+  }
+};
+
+// ─── POST /api/users ─────────────────────────────────────────────────────────
+// @desc  Admin / Manager creates a new user
+// @access Private — Admin / Manager (manage_users permission)
 const createUser = async (req, res) => {
-  const { name, email, password, role, permissions, avatar, phone, location } = req.body;
+  const { name, email, password, role, permissions, phone, location } = req.body;
 
   try {
-    const userExists = await User.findOne({ email });
-    if (userExists) {
-      return res.status(400).json({ message: 'User already exists' });
-    }
+    const exists = await User.findOne({ email });
+    if (exists) return errorResponse(res, 'A user with this email already exists', 409);
 
-    // Role hierarchy checking
+    // Role hierarchy guard for non-admins
     if (req.user.role !== 'admin') {
       if (role === 'admin' || (req.user.role === 'manager' && role === 'manager')) {
-        return res.status(403).json({ message: 'Cannot create a user with a higher or equal role' });
+        return forbidden(res, 'Cannot create a user with a higher or equal role');
       }
-      
-      // Check grant ceiling
       if (permissions && !checkGrantCeiling(req.user.permissions || [], permissions)) {
-        return res.status(403).json({ message: 'Grant Ceiling Error: You cannot grant permissions you do not have.' });
+        return forbidden(res, 'Grant ceiling violation: you cannot grant permissions you do not own');
       }
     }
 
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    const hashed = await bcrypt.hash(password, await bcrypt.genSalt(10));
 
     const user = await User.create({
       name,
       email,
-      password: hashedPassword,
-      role: role || 'user',
+      password:  hashed,
+      role:      role || 'user',
       permissions: permissions || [],
       managedBy: req.user.role !== 'admin' ? req.user._id : null,
-      avatar, phone, location
+      phone,
+      location,
     });
 
     await AuditLog.create({
-        user: req.user._id,
-        action: 'CREATE_USER',
-        target: user._id,
-        details: { role: user.role, permissions: user.permissions }
+      user:    req.user._id,
+      action:  'CREATE_USER',
+      target:  user._id,
+      details: { role: user.role, permissions: user.permissions },
     });
 
-    if (user) {
-      res.status(201).json({
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        permissions: user.permissions,
-      });
-    } else {
-      res.status(400).json({ message: 'Invalid user data' });
-    }
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// @desc    Update a user
-// @route   PUT /api/users/:id
-// @access  Private
-const updateUser = async (req, res) => {
-  const { name, role, permissions, status, avatar, phone, location } = req.body;
-
-  try {
-    const user = await User.findById(req.params.id);
-
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    // Checking if requester can edit this user
-    if (req.user.role !== 'admin' && (!user.managedBy || user.managedBy.toString() !== req.user._id.toString())) {
-      return res.status(403).json({ message: 'Not authorized to edit this user' });
-    }
-
-    if (req.user.role !== 'admin' && permissions) {
-      // Check grant ceiling
-      if (!checkGrantCeiling(req.user.permissions || [], permissions)) {
-        return res.status(403).json({ message: 'Grant Ceiling Error: You cannot grant permissions you do not have.' });
-      }
-    }
-
-    if (name) user.name = name;
-    if (role && req.user.role === 'admin') user.role = role; // Only Admin can change role strings
-    if (permissions) user.permissions = permissions;
-    if (status) user.status = status;
-    if (avatar) user.avatar = avatar;
-    if (phone) user.phone = phone;
-    if (location) user.location = location;
-
-    const updatedUser = await user.save();
-
-    await AuditLog.create({
-        user: req.user._id,
-        action: 'UPDATE_USER',
-        target: updatedUser._id,
-        details: { updatedFields: req.body }
+    return createdResponse(res, 'User created successfully', {
+      _id:         user._id,
+      name:        user.name,
+      email:       user.email,
+      role:        user.role,
+      permissions: user.permissions,
     });
-
-    res.json({
-        _id: updatedUser._id,
-        name: updatedUser.name,
-        email: updatedUser.email,
-        role: updatedUser.role,
-        permissions: updatedUser.permissions,
-        status: updatedUser.status
-    });
-
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// @desc    Delete a user
-// @route   DELETE /api/users/:id
-// @access  Private
-const deleteUser = async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id);
-
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    if (req.user.role !== 'admin' && (!user.managedBy || user.managedBy.toString() !== req.user._id.toString())) {
-      return res.status(403).json({ message: 'Not authorized to delete this user' });
-    }
-
-    await User.findByIdAndDelete(req.params.id);
-    
-    await AuditLog.create({
-        user: req.user._id,
-        action: 'DELETE_USER',
-        target: user._id,
-        details: { deletedEmail: user.email }
-    });
-
-    res.json({ message: 'User removed' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+  } catch (err) {
+    return serverError(res, err);
   }
 };
 
 module.exports = {
-  getUsers,
+  getMyProfile,
+  updateMyProfile,
+  changePassword,
+  getAllUsers,
+  getUserById,
+  updateUserById,
+  deleteUserById,
   createUser,
-  updateUser,
-  deleteUser
 };

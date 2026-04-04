@@ -1,10 +1,12 @@
 const express = require('express');
-const dotenv = require('dotenv');
-const cors = require('cors');
-const morgan = require('morgan');
-const os = require('os');
+const dotenv  = require('dotenv');
+const cors    = require('cors');
+const morgan  = require('morgan');
+const os      = require('os');
+const path    = require('path');
+const fs      = require('fs');
 const connectDB = require('./config/db');
-const https = require('https');
+const https   = require('https');
 
 
 // Load env vars
@@ -39,6 +41,12 @@ app.use(express.json());
 
 // Cookie parser
 app.use(cookieParser());
+
+// ── Static files: user avatar uploads ──────────────────────────────────────
+// Accessible at: GET /uploads/users/<filename>
+const uploadsDir = path.join(__dirname, 'uploads');
+fs.mkdirSync(uploadsDir, { recursive: true });
+app.use('/uploads', express.static(uploadsDir));
 
 // Enable CORS
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:3001,https://digital-pylot-frontend-five.vercel.app,https://console.cron-job.org')
