@@ -1,9 +1,14 @@
 const express = require('express');
 const router = express.Router();
 
-const { getSettings } = require('../controllers/rbacModuleController');
-const { protect, requirePermission } = require('../middleware/authMiddleware');
+const { getSystemSettings, updateSystemSettings } = require('../controllers/settingsController');
+const { protect, authProtected } = require('../middleware/authMiddleware');
 
-router.get('/', protect, requirePermission('manage_settings'), getSettings);
+// System settings are strictly admin-only for security reasons.
+// They control global platform behaviors.
+router
+  .route('/')
+  .get(protect, authProtected('admin'), getSystemSettings)
+  .put(protect, authProtected('admin'), updateSystemSettings);
 
 module.exports = router;

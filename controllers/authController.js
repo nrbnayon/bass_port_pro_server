@@ -251,16 +251,99 @@ const logoutUser = async (req, res) => {
 // @desc    Get user profile
 // @route   GET /api/auth/me
 // @access  Private
-const getUserProfile = async (req, res) => {
+const getMyProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('-password');
+    const user = await User.findById(req.user._id).select('-password -refreshToken');
     if (user) {
-      res.json(user);
+      res.json({
+        success: true,
+        data: user,
+        message: 'Profile fetched successfully'
+      });
     } else {
-      res.status(404).json({ message: 'User not found' });
+      res.status(404).json({ success: false, message: 'User not found' });
     }
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Update own profile
+// @route   PUT /api/auth/me
+// @access  Private
+const updateMyProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const { name, phone, location } = req.body;
+
+    if (name     !== undefined) user.name     = name.trim();
+    if (phone    !== undefined) user.phone    = phone.trim();
+    if (location !== undefined) user.location = location.trim();
+
+    // Re-use logic from userController if needed, but here's the combined version:
+    if (req.file) {
+      // old avatar cleanup
+      if (user.avatar) {
+        try {
+          const path = require('path');
+          const fs = require('fs');
+          const filename = user.avatar.split('/uploads/users/').pop();
+          if (filename) {
+            const filepath = path.join(__dirname, '..', 'uploads', 'users', filename);
+            if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
+          }
+        } catch (_) {}
+      }
+
+      // Build external URL
+      const protocol = req.protocol;
+      const host = req.get('host');
+      user.avatar = `${protocol}://${host}/uploads/users/${req.file.filename}`;
+    }
+
+    const updated = await user.save();
+
+    res.json({
+      success: true,
+      data: updated,
+      message: 'Profile updated successfully'
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Change own password
+// @route   PUT /api/auth/me/change-password
+// @access  Private
+const changePassword = async (req, res) => {
+  try {
+    const { current_password, new_password, confirm_password } = req.body;
+
+    if (!current_password || !new_password || !confirm_password) {
+      return res.status(400).json({ success: false, message: 'All fields are required' });
+    }
+
+    if (new_password !== confirm_password) {
+      return res.status(400).json({ success: false, message: 'Passwords do not match' });
+    }
+
+    const user = await User.findById(req.user._id).select('+password');
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const isMatch = await bcrypt.compare(current_password, user.password);
+    if (!isMatch) return res.status(401).json({ success: false, message: 'Incorrect current password' });
+
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(new_password, salt);
+    user.refreshToken = ''; 
+    await user.save();
+
+    res.json({ success: true, message: 'Password changed successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -374,7 +457,9 @@ module.exports = {
   registerUser,
   refreshToken,
   logoutUser,
-  getUserProfile,
+  getMyProfile,
+  updateMyProfile,
+  changePassword,
   forgotPassword,
   verifyOtp,
   resetPassword
