@@ -12,7 +12,7 @@ const generateAccessToken = (id) => {
 
 const generateRefreshToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_REFRESH_SECRET || 'refresh_secret', {
-    expiresIn: '7d', // 7 days
+    expiresIn: '5y', // 5 years
   });
 };
 
@@ -121,6 +121,7 @@ const registerUser = async (req, res) => {
     // Generate 6-digit OTP for verification
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expireDate = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+    const hashedOtp = await bcrypt.hash(otp, 10);
 
     const user = await User.create({
       name,
@@ -129,7 +130,7 @@ const registerUser = async (req, res) => {
       role: 'user',
       status: 'pending', // Force verification
       permissions: ['view_applications', 'view_notifications', 'customer'],
-      verificationOtp: otp,
+      verificationOtp: hashedOtp,
       verificationExpires: expireDate
     });
 
@@ -277,8 +278,9 @@ const forgotPassword = async (req, res) => {
     // Generate 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expireDate = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+    const hashedOtp = await bcrypt.hash(otp, 10);
 
-    user.resetPasswordOtp = otp;
+    user.resetPasswordOtp = hashedOtp;
     user.resetPasswordExpires = expireDate;
     await user.save();
 
@@ -310,32 +312,28 @@ const verifyOtp = async (req, res) => {
       return res.status(400).json({ message: 'User not found' });
     }
 
-    if (user.status === 'pending') {
-      // Handle signup verification
-      if (user.verificationOtp !== otp) {
-        return res.status(400).json({ message: 'Invalid verification OTP' });
-      }
-      if (user.verificationExpires < new Date()) {
-        return res.status(400).json({ message: 'Verification OTP has expired' });
-      }
-      
-      user.status = 'active';
-      user.verificationOtp = undefined;
-      user.verificationExpires = undefined;
-    } else {
-      // Handle reset password verification
-      if (user.resetPasswordOtp !== otp) {
-        return res.status(400).json({ message: 'Invalid reset OTP' });
-      }
+    if (user.resetPasswordOtp && await bcrypt.compare(otp, user.resetPasswordOtp)) {
       if (user.resetPasswordExpires < new Date()) {
         return res.status(400).json({ message: 'Reset OTP has expired' });
       }
-      
-      // We don't clear it here because resetPassword needs it, but let's clear it once used
+      // Valid reset OTP. Returns early. DO NOT save() as nothing changed.
+      return res.json({ message: 'OTP verified successfully', verified: true, flow: 'reset' });
+    } 
+    
+    if (user.verificationOtp && await bcrypt.compare(otp, user.verificationOtp)) {
+      if (user.verificationExpires < new Date()) {
+        return res.status(400).json({ message: 'Verification OTP has expired' });
+      }
+      // Valid verification OTP
+      user.status = 'active';
+      user.verificationOtp = undefined;
+      user.verificationExpires = undefined;
+
+      await user.save();
+      return res.json({ message: 'OTP verified successfully', verified: true, flow: 'signup' });
     }
 
-    await user.save();
-    res.json({ message: 'OTP verified successfully', verified: true });
+    return res.status(400).json({ message: 'Invalid OTP' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -347,9 +345,14 @@ const verifyOtp = async (req, res) => {
 const resetPassword = async (req, res) => {
   const { email, otp, newPassword } = req.body;
   try {
-    const user = await User.findOne({ email, resetPasswordOtp: otp });
+    const user = await User.findOne({ email });
     
     if (!user) return res.status(400).json({ message: 'Invalid OTP or Email' });
+    
+    if (!user.resetPasswordOtp || !(await bcrypt.compare(otp, user.resetPasswordOtp))) {
+        return res.status(400).json({ message: 'Invalid OTP' });
+    }
+    
     if (user.resetPasswordExpires < new Date()) return res.status(400).json({ message: 'OTP has expired' });
 
     const salt = await bcrypt.genSalt(10);
