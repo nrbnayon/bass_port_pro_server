@@ -48,7 +48,7 @@ const loginUser = async (req, res) => {
   const { email, password, rememberMe } = req.body;
 
   try {
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email }).select('+password');
 
     if (user && (await bcrypt.compare(password, user.password))) {
       // Robust status check
@@ -303,11 +303,14 @@ const updateMyProfile = async (req, res) => {
       user.avatar = `${protocol}://${host}/uploads/users/${req.file.filename}`;
     }
 
-    const updated = await user.save();
+    await user.save();
+
+    // Fetch safe copy without password or refresh token
+    const safeUser = await User.findById(user._id).select('-password -refreshToken');
 
     res.json({
       success: true,
-      data: updated,
+      data: safeUser,
       message: 'Profile updated successfully'
     });
   } catch (error) {
