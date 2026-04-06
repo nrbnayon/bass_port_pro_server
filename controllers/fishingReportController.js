@@ -1,9 +1,14 @@
-const FishingReport = require('../models/FishingReport');
-const Lake          = require('../models/Lake');
-const AuditLog      = require('../models/AuditLog');
+const FishingReport = require("../models/FishingReport");
+const Lake = require("../models/Lake");
+const AuditLog = require("../models/AuditLog");
 const {
-  success, created, notFound, badRequest, serverError, forbidden
-} = require('../utils/apiResponse');
+  success,
+  created,
+  notFound,
+  badRequest,
+  serverError,
+  forbidden,
+} = require("../utils/apiResponse");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // @desc    Get all fishing reports (paginated, filterable)
@@ -13,45 +18,62 @@ const {
 exports.getReports = async (req, res) => {
   try {
     const {
-      page = 1, limit = 6,
-      search = '', lake = '', lakeId = '',
-      weather = '', clarity = '', waterLevel = '',
-      sortBy = 'fishedAt', order = 'desc',
-      user: userId, featured, status
+      page = 1,
+      limit = 6,
+      search = "",
+      lake = "",
+      lakeId = "",
+      weather = "",
+      clarity = "",
+      waterLevel = "",
+      sortBy = "fishedAt",
+      order = "desc",
+      user: userId,
+      featured,
+      status,
     } = req.query;
 
     const query = {};
-    const isAdmin = req.user && ['admin', 'manager'].includes(req.user.role);
-    
+    const isAdmin = req.user && ["admin", "manager"].includes(req.user.role);
+
+    console.log(isAdmin, "isAdmin", req.user);
+
     // Admin can filter by any status, or see all if status is not provided or 'all'
     if (isAdmin) {
-      if (status && status !== 'all') {
+      if (status && status !== "all") {
         query.status = status;
       }
     } else {
       // Non-admins only see active reports
-      query.status = 'active';
+      query.status = "active";
     }
 
     if (search) {
       query.$or = [
-        { text:     { $regex: search, $options: 'i' } },
-        { lakeName: { $regex: search, $options: 'i' } },
-        { tags:     { $regex: search, $options: 'i' } },
-        { title:    { $regex: search, $options: 'i' } },
+        { text: { $regex: search, $options: "i" } },
+        { lakeName: { $regex: search, $options: "i" } },
+        { tags: { $regex: search, $options: "i" } },
+        { title: { $regex: search, $options: "i" } },
       ];
     }
-    if (lake)       query.lakeName = { $regex: lake, $options: 'i' };
-    if (lakeId)     query.lake = lakeId;
-    if (weather)    query['conditions.weather'] = weather;
-    if (clarity)    query['conditions.clarity'] = clarity;
-    if (waterLevel) query['conditions.waterLevel'] = waterLevel;
-    if (userId)     query.user = userId;
-    if (featured === 'true') query.featured = true;
+    if (lake) query.lakeName = { $regex: lake, $options: "i" };
+    if (lakeId) query.lake = lakeId;
+    if (weather) query["conditions.weather"] = weather;
+    if (clarity) query["conditions.clarity"] = clarity;
+    if (waterLevel) query["conditions.waterLevel"] = waterLevel;
+    if (userId) query.user = userId;
+    if (featured === "true") query.featured = true;
 
-    const SORT_WHITELIST = ['fishedAt', 'createdAt', 'catchCount', 'biggestCatch', 'likes', 'score'];
-    const sortField = SORT_WHITELIST.includes(sortBy) ? sortBy : 'fishedAt';
-    const sortOrder = order === 'asc' ? 1 : -1;
+    const SORT_WHITELIST = [
+      "fishedAt",
+      "createdAt",
+      "catchCount",
+      "biggestCatch",
+      "likes",
+      "score",
+    ];
+    const sortField = SORT_WHITELIST.includes(sortBy) ? sortBy : "fishedAt";
+    const sortOrder = order === "asc" ? 1 : -1;
 
     const skip = (Number(page) - 1) * Number(limit);
     const [reports, total] = await Promise.all([
@@ -59,8 +81,8 @@ exports.getReports = async (req, res) => {
         .sort({ [sortField]: sortOrder })
         .skip(skip)
         .limit(Number(limit))
-        .populate('user', 'name avatar location')
-        .populate('lake', 'name slug state')
+        .populate("user", "name avatar location")
+        .populate("lake", "name slug state")
         .lean(),
       FishingReport.countDocuments(query),
     ]);
@@ -68,21 +90,25 @@ exports.getReports = async (req, res) => {
     // Check helpful/liked for current user
     let helpfulIds = new Set();
     if (req.user) {
-      const withHelp = reports.filter(r => r.helpfulBy?.some(id => id.toString() === req.user._id.toString()));
-      helpfulIds = new Set(withHelp.map(r => r._id.toString()));
+      const withHelp = reports.filter((r) =>
+        r.helpfulBy?.some((id) => id.toString() === req.user._id.toString()),
+      );
+      helpfulIds = new Set(withHelp.map((r) => r._id.toString()));
     }
 
-    const result = reports.map(r => ({
+    const result = reports.map((r) => ({
       ...r,
       isHelpful: helpfulIds.has(r._id.toString()),
       helpfulBy: undefined,
-      likedBy:   undefined,
+      likedBy: undefined,
     }));
 
     return success(res, {
       reports: result,
       pagination: {
-        page: Number(page), limit: Number(limit), total,
+        page: Number(page),
+        limit: Number(limit),
+        total,
         pages: Math.ceil(total / Number(limit)),
       },
     });
@@ -99,20 +125,35 @@ exports.getReports = async (req, res) => {
 exports.getReportById = async (req, res) => {
   try {
     const report = await FishingReport.findById(req.params.id)
-      .populate('user', 'name avatar location')
-      .populate('lake', 'name slug state image')
+      .populate("user", "name avatar location")
+      .populate("lake", "name slug state image")
       .lean();
 
-    if (!report || report.status === 'rejected') return notFound(res, 'Report not found');
+    if (!report || report.status === "rejected")
+      return notFound(res, "Report not found");
 
     let isHelpful = false;
-    let isLiked   = false;
+    let isLiked = false;
     if (req.user) {
-      isHelpful = report.helpfulBy?.some(id => id.toString() === req.user._id.toString()) ?? false;
-      isLiked   = report.likedBy?.some(id => id.toString() === req.user._id.toString()) ?? false;
+      isHelpful =
+        report.helpfulBy?.some(
+          (id) => id.toString() === req.user._id.toString(),
+        ) ?? false;
+      isLiked =
+        report.likedBy?.some(
+          (id) => id.toString() === req.user._id.toString(),
+        ) ?? false;
     }
 
-    return success(res, { report: { ...report, isHelpful, isLiked, helpfulBy: undefined, likedBy: undefined } });
+    return success(res, {
+      report: {
+        ...report,
+        isHelpful,
+        isLiked,
+        helpfulBy: undefined,
+        likedBy: undefined,
+      },
+    });
   } catch (error) {
     return serverError(res, error.message);
   }
@@ -126,54 +167,76 @@ exports.getReportById = async (req, res) => {
 exports.createReport = async (req, res) => {
   try {
     const {
-      lakeName, lakeId,
-      title, text, tags, conditions,
-      catchCount, biggestCatch, score, fishedAt
+      lakeName,
+      lakeId,
+      title,
+      text,
+      tags,
+      conditions,
+      catchCount,
+      biggestCatch,
+      score,
+      fishedAt,
     } = req.body;
 
-    if (!text || !lakeName) return badRequest(res, 'Report text and lake name are required');
+    if (!text || !lakeName)
+      return badRequest(res, "Report text and lake name are required");
 
     // Resolve lake FK
     let resolvedLake = null;
     if (lakeId) {
       resolvedLake = await Lake.findById(lakeId);
     } else {
-      resolvedLake = await Lake.findOne({ name: { $regex: new RegExp(`^${lakeName}$`, 'i') }, status: 'active' });
+      resolvedLake = await Lake.findOne({
+        name: { $regex: new RegExp(`^${lakeName}$`, "i") },
+        status: "active",
+      });
     }
 
     const report = await FishingReport.create({
-      user:        req.user._id,
-      lake:        resolvedLake?._id || null,
-      lakeName:    resolvedLake?.name || lakeName,
-      title:       title || '',
+      user: req.user._id,
+      lake: resolvedLake?._id || null,
+      lakeName: resolvedLake?.name || lakeName,
+      title: title || "",
       text,
-      tags:        Array.isArray(tags) ? tags : (tags ? tags.split(',').map(t => t.trim()) : []),
-      conditions:  conditions || {},
-      catchCount:  Number(catchCount)   || 0,
-      biggestCatch:biggestCatch ? Number(biggestCatch) : null,
-      score:       Number(score)        || 0,
-      fishedAt:    fishedAt ? new Date(fishedAt) : new Date(),
-      status:      'active',
+      tags: Array.isArray(tags)
+        ? tags
+        : tags
+          ? tags.split(",").map((t) => t.trim())
+          : [],
+      conditions: conditions || {},
+      catchCount: Number(catchCount) || 0,
+      biggestCatch: biggestCatch ? Number(biggestCatch) : null,
+      score: Number(score) || 0,
+      fishedAt: fishedAt ? new Date(fishedAt) : new Date(),
+      status: "active",
     });
 
     // Increment lake reportCount
     if (resolvedLake) {
-      await Lake.findByIdAndUpdate(resolvedLake._id, { $inc: { reportCount: 1 } });
+      await Lake.findByIdAndUpdate(resolvedLake._id, {
+        $inc: { reportCount: 1 },
+      });
     }
 
     await AuditLog.create({
-      user: req.user._id, action: 'REPORT_CREATE',
-      target: report._id, 
-      targetType: 'FishingReport',
-      details: { lakeName: report.lakeName }
+      user: req.user._id,
+      action: "REPORT_CREATE",
+      target: report._id,
+      targetType: "FishingReport",
+      details: { lakeName: report.lakeName },
     });
 
     const populated = await FishingReport.findById(report._id)
-      .populate('user', 'name avatar')
-      .populate('lake', 'name slug')
+      .populate("user", "name avatar")
+      .populate("lake", "name slug")
       .lean();
 
-    return created(res, { report: populated }, 'Fishing report submitted successfully');
+    return created(
+      res,
+      { report: populated },
+      "Fishing report submitted successfully",
+    );
   } catch (error) {
     return serverError(res, error.message);
   }
@@ -187,18 +250,35 @@ exports.createReport = async (req, res) => {
 exports.updateReport = async (req, res) => {
   try {
     const report = await FishingReport.findById(req.params.id);
-    if (!report) return notFound(res, 'Report not found');
+    if (!report) return notFound(res, "Report not found");
 
-    const isAdmin = ['admin', 'manager'].includes(req.user.role);
+    const isAdmin = ["admin", "manager"].includes(req.user.role);
     const isOwner = report.user.toString() === req.user._id.toString();
-    if (!isAdmin && !isOwner) return forbidden(res, 'Not authorized to update this report');
+    if (!isAdmin && !isOwner)
+      return forbidden(res, "Not authorized to update this report");
 
-    const updatable = ['title', 'text', 'tags', 'conditions', 'catchCount', 'biggestCatch', 'score', 'fishedAt', 'featured', 'status'];
-    updatable.forEach(f => { if (req.body[f] !== undefined) report[f] = req.body[f]; });
+    const updatable = [
+      "title",
+      "text",
+      "tags",
+      "conditions",
+      "catchCount",
+      "biggestCatch",
+      "score",
+      "fishedAt",
+      "featured",
+      "status",
+    ];
+    updatable.forEach((f) => {
+      if (req.body[f] !== undefined) report[f] = req.body[f];
+    });
 
     await report.save();
-    const updated = await FishingReport.findById(report._id).populate('user', 'name avatar').populate('lake', 'name slug').lean();
-    return success(res, { report: updated }, 'Report updated successfully');
+    const updated = await FishingReport.findById(report._id)
+      .populate("user", "name avatar")
+      .populate("lake", "name slug")
+      .lean();
+    return success(res, { report: updated }, "Report updated successfully");
   } catch (error) {
     return serverError(res, error.message);
   }
@@ -212,11 +292,12 @@ exports.updateReport = async (req, res) => {
 exports.deleteReport = async (req, res) => {
   try {
     const report = await FishingReport.findById(req.params.id);
-    if (!report) return notFound(res, 'Report not found');
+    if (!report) return notFound(res, "Report not found");
 
-    const isAdmin = ['admin', 'manager'].includes(req.user.role);
+    const isAdmin = ["admin", "manager"].includes(req.user.role);
     const isOwner = report.user.toString() === req.user._id.toString();
-    if (!isAdmin && !isOwner) return forbidden(res, 'Not authorized to delete this report');
+    if (!isAdmin && !isOwner)
+      return forbidden(res, "Not authorized to delete this report");
 
     // Decrement lake counter
     if (report.lake) {
@@ -226,12 +307,13 @@ exports.deleteReport = async (req, res) => {
     await report.deleteOne();
 
     await AuditLog.create({
-      user: req.user._id, action: 'REPORT_DELETE',
-      target: report._id, 
-      targetType: 'FishingReport',
+      user: req.user._id,
+      action: "REPORT_DELETE",
+      target: report._id,
+      targetType: "FishingReport",
     });
 
-    return success(res, null, 'Report deleted successfully');
+    return success(res, null, "Report deleted successfully");
   } catch (error) {
     return serverError(res, error.message);
   }
@@ -244,22 +326,29 @@ exports.deleteReport = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.toggleHelpful = async (req, res) => {
   try {
-    const report   = await FishingReport.findById(req.params.id);
-    if (!report)   return notFound(res, 'Report not found');
+    const report = await FishingReport.findById(req.params.id);
+    if (!report) return notFound(res, "Report not found");
 
-    const userId   = req.user._id;
-    const hasVoted = report.helpfulBy.some(id => id.toString() === userId.toString());
+    const userId = req.user._id;
+    const hasVoted = report.helpfulBy.some(
+      (id) => id.toString() === userId.toString(),
+    );
 
     if (hasVoted) {
-      report.helpfulBy     = report.helpfulBy.filter(id => id.toString() !== userId.toString());
-      report.helpfulCount  = Math.max(0, report.helpfulCount - 1);
+      report.helpfulBy = report.helpfulBy.filter(
+        (id) => id.toString() !== userId.toString(),
+      );
+      report.helpfulCount = Math.max(0, report.helpfulCount - 1);
     } else {
       report.helpfulBy.push(userId);
       report.helpfulCount += 1;
     }
     await report.save();
 
-    return success(res, { helpfulCount: report.helpfulCount, isHelpful: !hasVoted });
+    return success(res, {
+      helpfulCount: report.helpfulCount,
+      isHelpful: !hasVoted,
+    });
   } catch (error) {
     return serverError(res, error.message);
   }
@@ -280,14 +369,19 @@ exports.getMyReports = async (req, res) => {
         .sort({ fishedAt: -1 })
         .skip(skip)
         .limit(Number(limit))
-        .populate('lake', 'name slug')
+        .populate("lake", "name slug")
         .lean(),
       FishingReport.countDocuments({ user: req.user._id }),
     ]);
 
     return success(res, {
       reports,
-      pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / Number(limit)) },
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total,
+        pages: Math.ceil(total / Number(limit)),
+      },
     });
   } catch (error) {
     return serverError(res, error.message);
@@ -301,7 +395,9 @@ exports.getMyReports = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getReportLakeNames = async (req, res) => {
   try {
-    const names = await FishingReport.distinct('lakeName', { status: 'active' });
+    const names = await FishingReport.distinct("lakeName", {
+      status: "active",
+    });
     return success(res, { lakes: names.sort() });
   } catch (error) {
     return serverError(res, error.message);

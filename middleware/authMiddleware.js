@@ -8,19 +8,20 @@ const { unauthorized, forbidden } = require('../utils/apiResponse');
 // Use on public routes that should behave differently for logged-in users.
 // ─────────────────────────────────────────────────────────────────────────────
 const optionalProtect = async (req, _res, next) => {
-  if (!req.headers.authorization || !req.headers.authorization.startsWith('Bearer')) {
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader || !authHeader.toLowerCase().startsWith('bearer')) {
     return next();
   }
 
   try {
-    const token = req.headers.authorization.split(' ')[1];
+    const token = authHeader.split(' ')[1];
     const blacklisted = await isBlacklisted(token);
     if (blacklisted) return next();
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
     const user = await User.findById(decoded.id).select('-password');
 
-    if (user && user.status === 'active') {
+    if (user) {
       req.user = user;
     }
   } catch (_error) {
@@ -36,13 +37,11 @@ const optionalProtect = async (req, _res, next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const protect = async (req, res, next) => {
   let token;
+  const authHeader = req.headers.authorization || '';
 
-  if (
-    req.headers.authorization &&
-    req.headers.authorization.startsWith('Bearer')
-  ) {
+  if (authHeader && authHeader.toLowerCase().startsWith('bearer')) {
     try {
-      token = req.headers.authorization.split(' ')[1];
+      token = authHeader.split(' ')[1];
 
       // Blacklist check
       const blacklisted = await isBlacklisted(token);
