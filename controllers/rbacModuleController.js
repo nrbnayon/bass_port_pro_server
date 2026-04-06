@@ -38,7 +38,7 @@ const getSettings = async (req, res) => {
   res.json({
     success: true,
     data: {
-      modules: ['dashboard', 'jobs', 'applications', 'users', 'reports', 'audit_logs'],
+      modules: ['dashboard', 'users', 'reports', 'audit_logs'],
       editable: true,
     },
     message: 'Settings module is active and permission-protected.',
