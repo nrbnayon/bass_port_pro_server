@@ -6,47 +6,53 @@ const connectDB = require('../config/db');
 
 const usersData = [
   {
-    name: "Nayon",
-    email: "admin@gmail.com",
-    role: "admin",
-    status: "active",
+    name: "Sarah Johnson",
+    email: "sara@example.com",
+    role: "user",
+    status: "Suspended",
+    reports: 42,
     location: "New York, USA",
-    avatar: "/images/avatar.png",
+    avatar: "",
     phone: "+123 456 7890",
-    permissions: ["view_dashboard", "manage_jobs", "manage_users", "view_audit_logs"]
+    permissions: ["view_dashboard"]
+  },
+  {
+    name: "Mike Chen",
+    email: "mike@example.com",
+    role: "creator",
+    status: "Active",
+    reports: 32,
+    location: "San Francisco, USA",
+    avatar: "",
+    permissions: ["view_dashboard"]
+  },
+  {
+    name: "Emily Davis",
+    email: "emily@example.com",
+    role: "user",
+    status: "Banned",
+    reports: 22,
+    location: "London, UK",
+    avatar: "",
+    permissions: ["view_dashboard"]
+  },
+  {
+    name: "John Smith",
+    email: "john@example.com",
+    role: "user",
+    status: "Active",
+    reports: 12,
+    location: "Toronto, Canada",
+    avatar: "",
+    phone: "+123 555 0102",
+    permissions: ["view_dashboard"]
   },
   {
     name: "Olivia Rhye",
     email: "olivia@example.com",
     role: "creator",
-    status: "active",
-    location: "775 Rolling Green Rd.",
-    avatar: "/images/avatar.png",
-    permissions: ["view_dashboard"]
-  },
-  {
-    name: "Phoenix Baker",
-    email: "phoenix@example.com",
-    role: "creator",
-    status: "suspended",
-    location: "775 Rolling Green Rd.",
-    avatar: "/images/avatar.png",
-    permissions: ["view_dashboard"]
-  },
-  {
-    name: "Candice Wu",
-    email: "candice@example.com",
-    role: "creator",
-    status: "active",
-    location: "775 Rolling Green Rd.",
-    avatar: "/images/avatar.png",
-    permissions: ["view_dashboard"]
-  },
-  {
-    name: "Drew Cano",
-    email: "drew@example.com",
-    role: "creator",
-    status: "suspended",
+    status: "Active",
+    reports: 5,
     location: "775 Rolling Green Rd.",
     avatar: "/images/avatar.png",
     permissions: ["view_dashboard"]
@@ -55,50 +61,11 @@ const usersData = [
     name: "Natali Craig",
     email: "natali@example.com",
     role: "user",
-    status: "active",
+    status: "Active",
+    reports: 0,
     location: "775 Rolling Green Rd.",
     avatar: "/images/avatar.png",
     phone: "+123 555 0100",
-    permissions: ["view_dashboard"]
-  },
-  {
-    name: "Orlando Diggs",
-    email: "orlando@example.com",
-    role: "user",
-    status: "suspended",
-    location: "775 Rolling Green Rd.",
-    avatar: "/images/avatar.png",
-    phone: "+123 555 0101",
-    permissions: ["view_dashboard"]
-  },
-  {
-    name: "Andi Lane",
-    email: "andi@example.com",
-    role: "user",
-    status: "active",
-    location: "775 Rolling Green Rd.",
-    avatar: "/images/avatar.png",
-    phone: "+123 555 0102",
-    permissions: ["view_dashboard"]
-  },
-  {
-    name: "Kate Morrison",
-    email: "kate@example.com",
-    role: "user",
-    status: "active",
-    location: "775 Rolling Green Rd.",
-    avatar: "/images/avatar.png",
-    phone: "+123 555 0103",
-    permissions: ["view_dashboard"]
-  },
-  {
-    name: "Koray Okumus",
-    email: "koray@example.com",
-    role: "user",
-    status: "active",
-    location: "775 Rolling Green Rd.",
-    avatar: "/images/avatar.png",
-    phone: "+123 555 0104",
     permissions: ["view_dashboard"]
   }
 ];
@@ -109,8 +76,11 @@ const seedUsers = async () => {
     const salt = await bcrypt.genSalt(10);
     const defaultPassword = await bcrypt.hash('password123', salt);
 
+    console.log('Clearing existing users (keeping admin)...');
+    // Optional: Keep admin if it has a specific email or just clear others
+    await User.deleteMany({ role: { $ne: 'admin' } });
+
     for (const userData of usersData) {
-      // Avoid duplicating the admin if it already exists from seedAdmin.js
       const existing = await User.findOne({ email: userData.email });
       if (existing) {
         console.log(`Skipping existing user: ${userData.email}`);
@@ -121,7 +91,7 @@ const seedUsers = async () => {
         ...userData,
         password: defaultPassword
       });
-      console.log(`User created: ${userData.email}`);
+      console.log(`User created: ${userData.email} (Status: ${userData.status}, Reports: ${userData.reports})`);
     }
 
     console.log('Seeding completed!');

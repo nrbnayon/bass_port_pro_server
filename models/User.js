@@ -11,9 +11,10 @@ const userSchema = new mongoose.Schema({
   },
   status: { 
     type: String, 
-    enum: ['active', 'suspended', 'banned', "pending"], 
-    default: 'active' 
+    enum: ['Active', 'Suspended', 'Banned', "Pending", "Inactive"], 
+    default: 'Active' 
   },
+  reports: { type: Number, default: 0 },
   managedBy: { 
     type: mongoose.Schema.Types.ObjectId, 
     ref: 'User', 

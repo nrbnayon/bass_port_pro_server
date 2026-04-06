@@ -174,7 +174,7 @@ const getAllUsers = async (req, res) => {
     const skip     = (pageNum - 1) * limitNum;
 
     // ── Build filter ──
-    const filter = {};
+    const filter = { role: { $ne: 'admin' } };
 
     if (search.trim()) {
       filter.$or = [
