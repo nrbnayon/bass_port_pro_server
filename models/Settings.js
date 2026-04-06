@@ -11,6 +11,8 @@ const settingsSchema = new mongoose.Schema({
   emailNotifications: { type: Boolean, default: true },
   twoFactorAuth: { type: Boolean, default: false },
   maintenanceMode: { type: Boolean, default: false },
+  privacyPolicy: { type: String, default: '' },
+  termsOfService: { type: String, default: '' },
   lastUpdatedBy: { 
     type: mongoose.Schema.Types.ObjectId, 
     ref: 'User' 
