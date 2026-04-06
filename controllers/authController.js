@@ -55,11 +55,11 @@ const loginUser = async (req, res) => {
       const status = (user.status || '').toString().trim().toLowerCase();
       
       if (status === 'pending') {
-        return res.status(403).json({ message: 'Account is pending verification. Please verify your email first.' });
+        return res.status(403).json({ message: 'Oh no! Your account is pending verification. Please verify your email first.' });
       }
       
       if (status !== 'active') {
-        return res.status(403).json({ message: 'Account is suspended or banned' });
+        return res.status(403).json({ message: 'Oh no! Your account is suspended or banned' });
       }
 
       const accessToken = generateAccessToken(user._id);
@@ -188,7 +188,7 @@ const refreshToken = async (req, res) => {
         }
 
         if (user.status === 'suspended' || user.status === 'banned' || user.status === 'pending') {
-          return res.status(403).json({ message: 'Account is not active' });
+          return res.status(403).json({ message: 'Oh no! Your account is not active' });
         }
 
         const accessToken = generateAccessToken(user._id);

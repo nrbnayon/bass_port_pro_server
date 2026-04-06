@@ -70,6 +70,13 @@ const unauthorized  = (res, message = 'Not authorized')      => errorResponse(re
 const forbidden     = (res, message = 'Forbidden')           => errorResponse(res, message, 403);
 const serverError   = (res, err) => {
   console.error('[ServerError]', err);
+
+  // Handle Mongoose / Validator errors nicely for the user
+  if (err?.name === 'ValidationError') {
+    const message = Object.values(err.errors).map(val => val.message).join(', ');
+    return errorResponse(res, `Data Validation Error: ${message}`, 400);
+  }
+
   return errorResponse(res, err?.message || 'Internal server error', 500);
 };
 

@@ -42,7 +42,15 @@ const seedAdmin = async () => {
       });
       console.log('Admin user seeded properly');
     } else {
-      console.log('Admin user already exists');
+      // Fix potential corruption
+      if (user.role !== 'admin' || user.status !== 'active') {
+        user.role = 'admin';
+        user.status = 'active';
+        await user.save();
+        console.log('Admin data fixed/updated');
+      } else {
+        console.log('Admin user already exists');
+      }
     }
     
     if (require.main === module) {

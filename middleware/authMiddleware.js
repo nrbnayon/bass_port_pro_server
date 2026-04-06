@@ -34,7 +34,7 @@ const protect = async (req, res, next) => {
 
       // Account status guard
       if (req.user.status === 'suspended' || req.user.status === 'banned') {
-        return forbidden(res, 'Account is suspended or banned');
+        return forbidden(res, 'Oh no! Your account is suspended or banned');
       }
 
       if (req.user.status !== 'active') {
