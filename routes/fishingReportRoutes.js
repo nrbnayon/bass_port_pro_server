@@ -4,11 +4,14 @@ const {
   getReports, getReportById, createReport, updateReport, deleteReport,
   toggleHelpful, getMyReports, getReportLakeNames,
 } = require('../controllers/fishingReportController');
-const { protect, optionalProtect, authProtected } = require('../middleware/authMiddleware');
+const { protect, optionalProtect, requirePermission } = require('../middleware/authMiddleware');
 
 // ── Public ────────────────────────────────────────────────────────────────────
 router.get('/lakes', getReportLakeNames);   // unique lake names for dropdown
 router.get('/',         optionalProtect, getReports);
+
+// ── Admin listing (permission protected) ────────────────────────────────────
+router.get('/admin', protect, requirePermission('view_reports'), getReports);
 
 // ── Named authenticated routes (before /:id) ─────────────────────────────────
 router.get('/my', protect, getMyReports);
