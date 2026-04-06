@@ -14,12 +14,13 @@ const fishingReportSchema = new mongoose.Schema({
   // ── Report Content ────────────────────────────────────────────────────────
   title:    { type: String, default: '' },
   text:     { type: String, required: true },
+  species:  { type: String, default: '' },
   tags:     [{ type: String }],
 
   // ── Fishing Conditions ────────────────────────────────────────────────────
   conditions: {
     temp:       { type: String, default: '' },
-    weather:    { type: String, enum: ['Sunny', 'Partly Cloudy', 'Overcast', 'Rainy', 'Windy', 'Stormy', ''], default: '' },
+    weather:    { type: String, enum: ['Sunny', 'Clear', 'Partly Cloudy', 'Overcast', 'Rainy', 'Windy', 'Stormy', ''], default: '' },
     wind:       { type: String, default: '' },
     waterLevel: { type: String, enum: ['Normal', 'High', 'Low', 'Rising', 'Falling', ''], default: '' },
     clarity:    { type: String, enum: ['Clear', 'Stained', 'Muddy', ''], default: '' },

@@ -17,12 +17,21 @@ exports.getReports = async (req, res) => {
       search = '', lake = '', lakeId = '',
       weather = '', clarity = '', waterLevel = '',
       sortBy = 'fishedAt', order = 'desc',
-      user: userId, featured, status = 'active'
+      user: userId, featured, status
     } = req.query;
 
     const query = {};
     const isAdmin = req.user && ['admin', 'manager'].includes(req.user.role);
-    query.status = isAdmin && status ? status : 'active';
+    
+    // Admin can filter by any status, or see all if status is not provided or 'all'
+    if (isAdmin) {
+      if (status && status !== 'all') {
+        query.status = status;
+      }
+    } else {
+      // Non-admins only see active reports
+      query.status = 'active';
+    }
 
     if (search) {
       query.$or = [
