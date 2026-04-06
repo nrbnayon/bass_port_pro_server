@@ -10,7 +10,6 @@ const {
 } = require('../controllers/userController');
 
 const { protect, authProtected, requirePermission } = require('../middleware/authMiddleware');
-const upload = require('../middleware/uploadMiddleware');
 
 // GET  /api/users             → list all users (search, filter, pagination)
 // POST /api/users             → create a new user

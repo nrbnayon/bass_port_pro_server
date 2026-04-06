@@ -2,8 +2,9 @@ const express = require('express');
 const router = express.Router();
 const { loginUser, registerUser, refreshToken, logoutUser, getMyProfile, updateMyProfile, changePassword, forgotPassword, verifyOtp, resetPassword } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
-const upload = require('../middleware/uploadMiddleware');
+const createUpload = require('../middleware/uploadMiddleware');
 const { authLimiter, loginLimiter, passwordResetLimiter } = require('../middleware/rateLimitMiddleware');
+const userUpload = createUpload('users');
 
 router.use(authLimiter);
 
@@ -17,7 +18,7 @@ router.post('/reset-password', passwordResetLimiter, resetPassword);
 router
   .route('/me')
   .get(protect, getMyProfile)
-  .put(protect, upload.single('avatar'), updateMyProfile);
+  .put(protect, userUpload.single('avatar'), updateMyProfile);
 
 router.put('/me/change-password', protect, changePassword);
 

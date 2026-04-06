@@ -85,7 +85,7 @@ exports.getLakes = async (req, res) => {
       },
     });
   } catch (error) {
-    return serverError(res, error.message);
+    return serverError(res, error);
   }
 };
 
@@ -121,7 +121,7 @@ exports.getLakeById = async (req, res) => {
 
     return success(res, { lake: { ...lake, isFavourite } });
   } catch (error) {
-    return serverError(res, error.message);
+    return serverError(res, error);
   }
 };
 
@@ -189,7 +189,7 @@ exports.createLake = async (req, res) => {
 
     return created(res, { lake }, isAdmin ? 'Lake created successfully' : 'Lake submitted for review');
   } catch (error) {
-    return serverError(res, error.message);
+    return serverError(res, error);
   }
 };
 
@@ -256,7 +256,7 @@ exports.updateLake = async (req, res) => {
 
     return success(res, { lake }, 'Lake updated successfully');
   } catch (error) {
-    return serverError(res, error.message);
+    return serverError(res, error);
   }
 };
 
@@ -292,7 +292,7 @@ exports.deleteLake = async (req, res) => {
 
     return success(res, null, 'Lake deleted successfully');
   } catch (error) {
-    return serverError(res, error.message);
+    return serverError(res, error);
   }
 };
 
@@ -323,7 +323,7 @@ exports.toggleFavouriteLake = async (req, res) => {
 
     return success(res, { isFavourite }, isFavourite ? 'Added to favourites' : 'Removed from favourites');
   } catch (error) {
-    return serverError(res, error.message);
+    return serverError(res, error);
   }
 };
 
@@ -367,7 +367,7 @@ exports.getLakeReviews = async (req, res) => {
       }
     });
   } catch (error) {
-    return serverError(res, error.message);
+    return serverError(res, error);
   }
 };
 
@@ -417,7 +417,7 @@ exports.createOrUpdateLakeReview = async (req, res) => {
       : success(res, { review: populatedReview }, 'Review updated successfully');
   } catch (error) {
     if (error.code === 11000) return badRequest(res, 'You have already reviewed this lake');
-    return serverError(res, error.message);
+    return serverError(res, error);
   }
 };
 
@@ -441,7 +441,7 @@ exports.deleteLakeReview = async (req, res) => {
 
     return success(res, null, 'Review deleted successfully');
   } catch (error) {
-    return serverError(res, error.message);
+    return serverError(res, error);
   }
 };
 
@@ -476,7 +476,7 @@ exports.updateLakeStatus = async (req, res) => {
 
     return success(res, { lake }, `Lake ${status === 'active' ? 'approved' : status} successfully`);
   } catch (error) {
-    return serverError(res, error.message);
+    return serverError(res, error);
   }
 };
 
@@ -507,7 +507,7 @@ exports.getLakeReports = async (req, res) => {
       pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / Number(limit)) },
     });
   } catch (error) {
-    return serverError(res, error.message);
+    return serverError(res, error);
   }
 };
 
@@ -527,6 +527,6 @@ exports.getFeaturedLakes = async (req, res) => {
 
     return success(res, { lakes });
   } catch (error) {
-    return serverError(res, error.message);
+    return serverError(res, error);
   }
 };
