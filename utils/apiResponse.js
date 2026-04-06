@@ -80,11 +80,21 @@ const serverError   = (res, err) => {
   return errorResponse(res, err?.message || 'Internal server error', 500);
 };
 
+/** Short-name aliases (preferred in new controllers) */
+const success    = (res, data, message = 'Success')     => res.status(200).json({ success: true, message, ...data });
+const created    = (res, data, message = 'Created')     => res.status(201).json({ success: true, message, ...data });
+const badRequest = (res, message = 'Bad request')       => errorResponse(res, message, 400);
+
 module.exports = {
+  // Verbose originals
   successResponse,
   createdResponse,
   paginatedResponse,
   errorResponse,
+  // Shorthand helpers (use these in new controllers)
+  success,
+  created,
+  badRequest,
   notFound,
   unauthorized,
   forbidden,

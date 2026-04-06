@@ -1,31 +1,35 @@
-const express = require('express');
-const dotenv  = require('dotenv');
-const cors    = require('cors');
-const morgan  = require('morgan');
-const os      = require('os');
-const path    = require('path');
-const fs      = require('fs');
-const connectDB = require('./config/db');
-const https   = require('https');
-
+const express      = require('express');
+const dotenv       = require('dotenv');
+const cors         = require('cors');
+const morgan       = require('morgan');
+const os           = require('os');
+const path         = require('path');
+const fs           = require('fs');
+const https        = require('https');
+const cookieParser = require('cookie-parser');
 
 // Load env vars
 dotenv.config();
 
-// Route files
-const dashboardRoutes = require('./routes/dashboardRoutes');
-const authRoutes = require('./routes/authRoutes');
-const userRoutes = require('./routes/userRoutes');
-const auditRoutes = require('./routes/auditRoutes');
-const leadRoutes = require('./routes/leadRoutes');
-const taskRoutes = require('./routes/taskRoutes');
-const reportRoutes = require('./routes/reportRoutes');
-const settingsRoutes = require('./routes/settingsRoutes');
-const cookieParser = require('cookie-parser');
-const { cleanupBlacklist } = require('./utils/tokenBlacklist');
-const seedAdmin = require('./scripts/seedAdmin');
+const connectDB           = require('./config/db');
+const { cleanupBlacklist} = require('./utils/tokenBlacklist');
+const seedAdmin           = require('./scripts/seedAdmin');
 
-// Connect to database
+// ── Route imports ──────────────────────────────────────────────────────────
+const authRoutes          = require('./routes/authRoutes');
+const userRoutes          = require('./routes/userRoutes');
+const auditRoutes         = require('./routes/auditRoutes');
+const settingsRoutes      = require('./routes/settingsRoutes');
+const dashboardRoutes     = require('./routes/dashboardRoutes');
+
+// ── BassInsight domain routes ──────────────────────────────────────────────
+const lakeRoutes          = require('./routes/lakeRoutes');
+const bassPornRoutes      = require('./routes/bassPornRoutes');
+const fishingReportRoutes = require('./routes/fishingReportRoutes');
+const commentRoutes       = require('./routes/commentRoutes');
+const contactRoutes       = require('./routes/contactRoutes');
+
+// ── Connect DB & seed ──────────────────────────────────────────────────────
 connectDB();
 seedAdmin();
 
@@ -33,22 +37,26 @@ const app = express();
 
 app.set('trust proxy', 1);
 
-// Body parser
+// ── Body / Cookie parsers ──────────────────────────────────────────────────
 app.use(express.json());
-
-// Cookie parser
+app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// ── Static files: user avatar uploads ──────────────────────────────────────
-// Accessible at: GET /uploads/users/<filename>
+// ── Static file serving ────────────────────────────────────────────────────
+// Serves: /uploads/users/…  /uploads/lakes/…  /uploads/catches/…
 const uploadsDir = path.join(__dirname, 'uploads');
-fs.mkdirSync(uploadsDir, { recursive: true });
+fs.mkdirSync(path.join(uploadsDir, 'users'),   { recursive: true });
+fs.mkdirSync(path.join(uploadsDir, 'lakes'),   { recursive: true });
+fs.mkdirSync(path.join(uploadsDir, 'catches'), { recursive: true });
 app.use('/uploads', express.static(uploadsDir));
 
-// Enable CORS
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:3001,https://digital-pylot-frontend-five.vercel.app,https://console.cron-job.org')
+// ── CORS ───────────────────────────────────────────────────────────────────
+const allowedOrigins = (
+  process.env.ALLOWED_ORIGINS ||
+  'http://localhost:3000,http://localhost:3001,https://bassinsight.vercel.app'
+)
   .split(',')
-  .map((origin) => origin.trim())
+  .map(o => o.trim())
   .filter(Boolean);
 
 app.use(cors({
@@ -56,76 +64,102 @@ app.use(cors({
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(new Error('CORS not allowed for this origin'));
+      callback(new Error(`CORS blocked for origin: ${origin}`));
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// Dev logging middleware
+// ── HTTP logger ────────────────────────────────────────────────────────────
 if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev'));
 }
 
-// Mount routers
-app.use('/api/jobs', jobRoutes);
-app.use('/api/applications', applicationRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/audit-logs', auditRoutes);
-app.use('/api/leads', leadRoutes);
-app.use('/api/tasks', taskRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/customer', customerRoutes);
-app.use('/api/settings', settingsRoutes);
+// ─────────────────────────────────────────────────────────────────────────────
+// Mount API routes
+// ─────────────────────────────────────────────────────────────────────────────
 
-// Root route
-app.get('/', (req, res) => {
-  res.send('API is running...');
+// Auth & user management
+app.use('/api/auth',       authRoutes);
+app.use('/api/users',      userRoutes);
+app.use('/api/audit-logs', auditRoutes);
+app.use('/api/settings',   settingsRoutes);
+
+// Admin dashboard
+app.use('/api/dashboard',  dashboardRoutes);
+
+// BassInsight domain
+app.use('/api/lakes',      lakeRoutes);
+app.use('/api/bassporn',   bassPornRoutes);
+app.use('/api/reports',    fishingReportRoutes);
+app.use('/api/comments',   commentRoutes);
+app.use('/api/contact',    contactRoutes);
+
+// ── Health check ───────────────────────────────────────────────────────────
+app.get('/', (_req, res) => {
+  res.json({
+    status: 'ok',
+    message: 'BassInsight API is running',
+    version: '2.0.0',
+    endpoints: {
+      auth:      '/api/auth',
+      users:     '/api/users',
+      lakes:     '/api/lakes',
+      bassporn:  '/api/bassporn',
+      reports:   '/api/reports',
+      comments:  '/api/comments',
+      contact:   '/api/contact',
+      dashboard: '/api/dashboard',
+    }
+  });
 });
 
+// ── 404 handler ────────────────────────────────────────────────────────────
+app.use((_req, res) => {
+  res.status(404).json({ success: false, message: 'Route not found' });
+});
+
+// ── Global error handler ───────────────────────────────────────────────────
+app.use((err, _req, res, _next) => {
+  console.error('[GlobalError]', err);
+  const status = err.status || 500;
+  res.status(status).json({ success: false, message: err.message || 'Internal server error' });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Start server
+// ─────────────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
-  cleanupBlacklist().catch((error) => console.error('Blacklist cleanup failed:', error));
-
+  // Scheduled blacklist cleanup (every hour)
+  cleanupBlacklist().catch(e => console.error('Blacklist cleanup failed:', e));
   setInterval(() => {
-    cleanupBlacklist().catch((error) => console.error('Blacklist cleanup failed:', error));
+    cleanupBlacklist().catch(e => console.error('Blacklist cleanup failed:', e));
   }, 60 * 60 * 1000);
 
-  // Get local IP
-  const interfaces = os.networkInterfaces();
+  // Print network info
+  const ifaces = os.networkInterfaces();
   let localIp = 'localhost';
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal) {
-        localIp = iface.address;
-        break;
-      }
+  for (const name of Object.keys(ifaces)) {
+    for (const iface of ifaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) { localIp = iface.address; break; }
     }
   }
-  
-  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode`);
-  console.log(`Local:            http://localhost:${PORT}`);
-  console.log(`On Your Network:  http://${localIp}:${PORT}`);
 
-  // Keep-Alive Ping (Prevent Render from sleeping)
-  if (process.env.NODE_ENV === 'production') {
-    const SERVICE_URL = process.env.RENDER_EXTERNAL_URL;
-    if (SERVICE_URL) {
-      setInterval(() => {
-        https.get(SERVICE_URL, (res) => {
-          console.log(`Keep-alive ping sent to ${SERVICE_URL}: Status ${res.statusCode}`);
-        }).on('error', (err) => {
-          console.error('Keep-alive ping failed:', err.message);
-        });
-      }, 14 * 60 * 1000); // 14 minutes
-    } else {
-      console.warn('RENDER_EXTERNAL_URL not found. Self-ping skipped.');
-    }
+  console.log(`\n🎣 BassInsight API v2.0`);
+  console.log(`   Mode:    ${process.env.NODE_ENV || 'development'}`);
+  console.log(`   Local:   http://localhost:${PORT}`);
+  console.log(`   Network: http://${localIp}:${PORT}\n`);
+
+  // Keep-Alive Ping for Render.com free tier
+  if (process.env.NODE_ENV === 'production' && process.env.RENDER_EXTERNAL_URL) {
+    setInterval(() => {
+      https.get(process.env.RENDER_EXTERNAL_URL, res => {
+        console.log(`Keep-alive ping: ${res.statusCode}`);
+      }).on('error', err => console.error('Keep-alive failed:', err.message));
+    }, 14 * 60 * 1000);
   }
 });
-

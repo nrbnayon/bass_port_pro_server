@@ -1,0 +1,387 @@
+const BassPorn      = require('../models/BassPorn');
+const Lake          = require('../models/Lake');
+const UserFavourite = require('../models/UserFavourite');
+const AuditLog      = require('../models/AuditLog');
+const Comment       = require('../models/Comment');
+const {
+  success, created, notFound, badRequest, serverError, forbidden
+} = require('../utils/apiResponse');
+const path = require('path');
+const fs   = require('fs');
+
+const buildFileUrl = (req, filename, subdir = 'catches') =>
+  `${req.protocol}://${req.get('host')}/uploads/${subdir}/${filename}`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Get all catches (paginated, sortable, filterable)
+// @route   GET /api/bassporn
+// @access  Public
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getCatches = async (req, res) => {
+  try {
+    const {
+      page = 1, limit = 12,
+      search = '', species = '', lake = '',
+      sortBy = 'createdAt', order = 'desc',
+      user: userId, featured, status = 'active'
+    } = req.query;
+
+    const query = {};
+
+    const isAdmin = req.user && ['admin', 'manager'].includes(req.user.role);
+    query.status = isAdmin && status ? status : 'active';
+
+    if (search) {
+      query.$or = [
+        { species:   { $regex: search, $options: 'i' } },
+        { lakeName:  { $regex: search, $options: 'i' } },
+        { technique: { $regex: search, $options: 'i' } },
+        { bait:      { $regex: search, $options: 'i' } },
+      ];
+    }
+    if (species)  query.species  = { $regex: species, $options: 'i' };
+    if (lake)     query.lakeName = { $regex: lake,    $options: 'i' };
+    if (userId)   query.user     = userId;
+    if (featured === 'true') query.featured = true;
+
+    const SORT_WHITELIST = ['createdAt', 'caughtAt', 'weight', 'likes', 'length'];
+    const sortField = SORT_WHITELIST.includes(sortBy) ? sortBy : 'createdAt';
+    const sortOrder = order === 'asc' ? 1 : -1;
+
+    const skip = (Number(page) - 1) * Number(limit);
+    const [catches, total] = await Promise.all([
+      BassPorn.find(query)
+        .sort({ [sortField]: sortOrder })
+        .skip(skip)
+        .limit(Number(limit))
+        .populate('user', 'name avatar')
+        .populate('lake', 'name slug')
+        .lean(),
+      BassPorn.countDocuments(query),
+    ]);
+
+    // Inject isFavourite + isLiked per item for the authenticated user
+    let favouriteIds = new Set();
+    let likedIds     = new Set();
+    if (req.user) {
+      const favs = await UserFavourite.find({ user: req.user._id, targetType: 'catch' }).select('catch').lean();
+      favouriteIds = new Set(favs.map(f => f.catch?.toString()));
+
+      const liked = catches.filter(c => c.likedBy?.some(id => id.toString() === req.user._id.toString()));
+      likedIds = new Set(liked.map(c => c._id.toString()));
+    }
+
+    const result = catches.map(c => ({
+      ...c,
+      isFavourite: favouriteIds.has(c._id.toString()),
+      isLiked:     likedIds.has(c._id.toString()),
+      likedBy: undefined, // don't expose full array to client
+    }));
+
+    return success(res, {
+      catches: result,
+      pagination: {
+        page: Number(page), limit: Number(limit), total,
+        pages: Math.ceil(total / Number(limit)),
+      },
+    });
+  } catch (error) {
+    return serverError(res, error.message);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Get a single catch by ID
+// @route   GET /api/bassporn/:id
+// @access  Public
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getCatchById = async (req, res) => {
+  try {
+    const catchItem = await BassPorn.findById(req.params.id)
+      .populate('user', 'name avatar location')
+      .populate('lake', 'name slug state')
+      .lean();
+
+    if (!catchItem || catchItem.status === 'rejected') return notFound(res, 'Catch not found');
+
+    let isFavourite = false;
+    let isLiked     = false;
+    if (req.user) {
+      isFavourite = !!(await UserFavourite.findOne({ user: req.user._id, targetType: 'catch', catch: catchItem._id }));
+      isLiked     = catchItem.likedBy?.some(id => id.toString() === req.user._id.toString()) ?? false;
+    }
+
+    return success(res, {
+      catch: { ...catchItem, isFavourite, isLiked, likedBy: undefined }
+    });
+  } catch (error) {
+    return serverError(res, error.message);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Upload (create) a new catch
+// @route   POST /api/bassporn
+// @access  Private
+// ─────────────────────────────────────────────────────────────────────────────
+exports.createCatch = async (req, res) => {
+  try {
+    const {
+      species, weight, weightUnit, length, technique, bait, depth,
+      description, lakeName, lakeId, caughtAt,
+      weatherSnapshot, coordinates
+    } = req.body;
+
+    if (!species || !weight || !technique || !lakeName) {
+      return badRequest(res, 'species, weight, technique and lakeName are required');
+    }
+
+    // Image is required
+    if (!req.file && !req.body.image) {
+      return badRequest(res, 'A catch photo is required');
+    }
+
+    const imageUrl = req.file ? buildFileUrl(req, req.file.filename) : req.body.image;
+
+    // Resolve lake FK if ID provided
+    let resolvedLake = null;
+    if (lakeId) {
+      resolvedLake = await Lake.findById(lakeId);
+    } else {
+      // Try to find by name
+      resolvedLake = await Lake.findOne({ name: { $regex: new RegExp(`^${lakeName}$`, 'i') }, status: 'active' });
+    }
+
+    const catchDoc = await BassPorn.create({
+      user:            req.user._id,
+      lake:            resolvedLake?._id || null,
+      lakeName:        resolvedLake?.name || lakeName,
+      species,
+      weight:          Number(weight),
+      weightUnit:      weightUnit  || 'lbs',
+      length:          length      ? Number(length)  : null,
+      technique,
+      bait:            bait         || '',
+      depth:           depth        || '',
+      description:     description  || '',
+      caughtAt:        caughtAt     ? new Date(caughtAt) : new Date(),
+      coordinates:     coordinates  || {},
+      weatherSnapshot: weatherSnapshot || {},
+      image:           imageUrl,
+      status:          'active',
+    });
+
+    // Increment lake counter
+    if (resolvedLake) {
+      await Lake.findByIdAndUpdate(resolvedLake._id, { $inc: { catchCount: 1 } });
+    }
+
+    await AuditLog.create({
+      user: req.user._id, action: 'CATCH_CREATE',
+      target: catchDoc._id, targetType: 'catch',
+      details: { species, weight, lakeName: catchDoc.lakeName }
+    });
+
+    const populated = await BassPorn.findById(catchDoc._id)
+      .populate('user', 'name avatar')
+      .populate('lake', 'name slug')
+      .lean();
+
+    return created(res, { catch: populated }, 'Catch uploaded successfully');
+  } catch (error) {
+    return serverError(res, error.message);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Update a catch
+// @route   PUT /api/bassporn/:id
+// @access  Private (Owner or Admin)
+// ─────────────────────────────────────────────────────────────────────────────
+exports.updateCatch = async (req, res) => {
+  try {
+    const catchDoc = await BassPorn.findById(req.params.id);
+    if (!catchDoc) return notFound(res, 'Catch not found');
+
+    const isAdmin = ['admin', 'manager'].includes(req.user.role);
+    const isOwner = catchDoc.user.toString() === req.user._id.toString();
+    if (!isAdmin && !isOwner) return forbidden(res, 'Not authorized to update this catch');
+
+    const updatable = ['species', 'weight', 'weightUnit', 'length', 'technique', 'bait', 'depth', 'description', 'caughtAt', 'weatherSnapshot', 'coordinates', 'featured', 'status'];
+    updatable.forEach(f => { if (req.body[f] !== undefined) catchDoc[f] = req.body[f]; });
+
+    if (req.file) {
+      if (catchDoc.image && catchDoc.image.includes('/uploads/')) {
+        try {
+          const fn = catchDoc.image.split('/uploads/catches/').pop();
+          const fp = path.join(__dirname, '..', 'uploads', 'catches', fn);
+          if (fs.existsSync(fp)) fs.unlinkSync(fp);
+        } catch (_) {}
+      }
+      catchDoc.image = buildFileUrl(req, req.file.filename);
+    }
+
+    await catchDoc.save();
+    const updated = await BassPorn.findById(catchDoc._id).populate('user', 'name avatar').populate('lake', 'name slug').lean();
+    return success(res, { catch: updated }, 'Catch updated successfully');
+  } catch (error) {
+    return serverError(res, error.message);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Delete a catch
+// @route   DELETE /api/bassporn/:id
+// @access  Private (Owner or Admin)
+// ─────────────────────────────────────────────────────────────────────────────
+exports.deleteCatch = async (req, res) => {
+  try {
+    const catchDoc = await BassPorn.findById(req.params.id);
+    if (!catchDoc) return notFound(res, 'Catch not found');
+
+    const isAdmin = ['admin', 'manager'].includes(req.user.role);
+    const isOwner = catchDoc.user.toString() === req.user._id.toString();
+    if (!isAdmin && !isOwner) return forbidden(res, 'Not authorized to delete this catch');
+
+    // Clean up image
+    if (catchDoc.image && catchDoc.image.includes('/uploads/')) {
+      try {
+        const fn = catchDoc.image.split('/uploads/catches/').pop();
+        const fp = path.join(__dirname, '..', 'uploads', 'catches', fn);
+        if (fs.existsSync(fp)) fs.unlinkSync(fp);
+      } catch (_) {}
+    }
+
+    // Decrement lake counter
+    if (catchDoc.lake) {
+      await Lake.findByIdAndUpdate(catchDoc.lake, { $inc: { catchCount: -1 } });
+    }
+
+    await catchDoc.deleteOne();
+    await Comment.deleteMany({ targetType: 'catch', catch: catchDoc._id });
+    await UserFavourite.deleteMany({ targetType: 'catch', catch: catchDoc._id });
+
+    await AuditLog.create({
+      user: req.user._id, action: 'CATCH_DELETE',
+      target: catchDoc._id, targetType: 'catch',
+    });
+
+    return success(res, null, 'Catch deleted successfully');
+  } catch (error) {
+    return serverError(res, error.message);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Like / Unlike a catch
+// @route   POST /api/bassporn/:id/like
+// @access  Private
+// ─────────────────────────────────────────────────────────────────────────────
+exports.toggleLikeCatch = async (req, res) => {
+  try {
+    const catchDoc = await BassPorn.findById(req.params.id);
+    if (!catchDoc) return notFound(res, 'Catch not found');
+
+    const userId   = req.user._id;
+    const hasLiked = catchDoc.likedBy.some(id => id.toString() === userId.toString());
+
+    if (hasLiked) {
+      catchDoc.likedBy = catchDoc.likedBy.filter(id => id.toString() !== userId.toString());
+      catchDoc.likes   = Math.max(0, catchDoc.likes - 1);
+    } else {
+      catchDoc.likedBy.push(userId);
+      catchDoc.likes += 1;
+    }
+    await catchDoc.save();
+
+    return success(res, { likes: catchDoc.likes, isLiked: !hasLiked });
+  } catch (error) {
+    return serverError(res, error.message);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Favourite / Unfavourite a catch
+// @route   POST /api/bassporn/:id/favourite
+// @access  Private
+// ─────────────────────────────────────────────────────────────────────────────
+exports.toggleFavouriteCatch = async (req, res) => {
+  try {
+    const catchDoc = await BassPorn.findById(req.params.id);
+    if (!catchDoc) return notFound(res, 'Catch not found');
+
+    const existing = await UserFavourite.findOne({ user: req.user._id, catch: catchDoc._id, targetType: 'catch' });
+
+    let isFavourite;
+    if (existing) {
+      await existing.deleteOne();
+      isFavourite = false;
+    } else {
+      await UserFavourite.create({ user: req.user._id, catch: catchDoc._id, targetType: 'catch' });
+      isFavourite = true;
+    }
+
+    return success(res, { isFavourite }, isFavourite ? 'Added to favourites' : 'Removed from favourites');
+  } catch (error) {
+    return serverError(res, error.message);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Get user's own catches
+// @route   GET /api/bassporn/my
+// @access  Private
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getMyCatches = async (req, res) => {
+  try {
+    const { page = 1, limit = 12 } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const [catches, total] = await Promise.all([
+      BassPorn.find({ user: req.user._id })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit))
+        .populate('lake', 'name slug')
+        .lean(),
+      BassPorn.countDocuments({ user: req.user._id }),
+    ]);
+
+    return success(res, {
+      catches,
+      pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / Number(limit)) },
+    });
+  } catch (error) {
+    return serverError(res, error.message);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Get user's favourited catches
+// @route   GET /api/bassporn/favourites
+// @access  Private
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getMyFavouriteCatches = async (req, res) => {
+  try {
+    const { page = 1, limit = 12 } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const [favs, total] = await Promise.all([
+      UserFavourite.find({ user: req.user._id, targetType: 'catch' })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit))
+        .populate({ path: 'catch', populate: [{ path: 'user', select: 'name avatar' }, { path: 'lake', select: 'name slug' }] })
+        .lean(),
+      UserFavourite.countDocuments({ user: req.user._id, targetType: 'catch' }),
+    ]);
+
+    const catches = favs.map(f => ({ ...f.catch, isFavourite: true }));
+    return success(res, {
+      catches,
+      pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / Number(limit)) },
+    });
+  } catch (error) {
+    return serverError(res, error.message);
+  }
+};

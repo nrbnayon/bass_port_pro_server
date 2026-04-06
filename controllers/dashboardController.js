@@ -1,68 +1,229 @@
+const User          = require('../models/User');
+const Lake          = require('../models/Lake');
+const BassPorn      = require('../models/BassPorn');
+const FishingReport = require('../models/FishingReport');
+const Review        = require('../models/Review');
+const Comment       = require('../models/Comment');
+const ContactMessage= require('../models/ContactMessage');
+const AuditLog      = require('../models/AuditLog');
+const { success, serverError } = require('../utils/apiResponse');
 
-// @desc    Get dashboard stats
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Get admin dashboard stats
 // @route   GET /api/dashboard/stats
-// @access  Public (in real app: Admin)
+// @access  Private (Admin / Manager)
+// ─────────────────────────────────────────────────────────────────────────────
 exports.getStats = async (req, res) => {
   try {
-    const totalJobs = await Job.countDocuments();
-    const totalApplications = await Application.countDocuments();
-    const remoteRoles = await Job.countDocuments({ 
-        $or: [
-            { type: { $regex: 'remote', $options: 'i' } },
-            { location: { $regex: 'remote', $options: 'i' } }
-        ]
-    });
+    const [
+      totalUsers,
+      totalLakes,
+      pendingLakes,
+      totalCatches,
+      totalReports,
+      totalReviews,
+      totalComments,
+      openContacts,
+      recentUsers,
+      recentLakes,
+    ] = await Promise.all([
+      User.countDocuments(),
+      Lake.countDocuments({ status: 'active' }),
+      Lake.countDocuments({ status: 'pending' }),
+      BassPorn.countDocuments({ status: 'active' }),
+      FishingReport.countDocuments({ status: 'active' }),
+      Review.countDocuments({ status: 'active' }),
+      Comment.countDocuments({ status: 'active' }),
+      ContactMessage.countDocuments({ status: 'open' }),
+      // Users registered in last 30 days
+      User.countDocuments({ createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
+      // Lakes added in last 30 days
+      Lake.countDocuments({ createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
+    ]);
 
-    // We emulate the data structure from frontend statsData.ts
-    // with actual data mixed with mock data where tables aren't present yet.
-    const statsData = [
-      {
-        title: "Total Jobs",
-        value: totalJobs.toString(),
-        subtitle: "12% Up from last month",
-        iconName: "Briefcase",
-        iconColor: "#4640DE",
-        iconBgColor: "#4640DE10",
-      },
-      {
-        title: "Applications",
-        value: totalApplications.toString(),
-        subtitle: "8.5% Up from last month",
-        iconName: "Users",
-        iconColor: "#56CDAD",
-        iconBgColor: "#56CDAD10",
-      },
-      {
-        title: "Talent Pool",
-        value: "12,850",
-        subtitle: "New members today",
-        iconName: "FileText",
-        iconColor: "#26A4FF",
-        iconBgColor: "#26A4FF10",
-      },
-      {
-        title: "Remote Roles",
-        value: remoteRoles.toString(),
-        subtitle: "Global opportunities",
-        iconName: "MapPin",
-        iconColor: "#FF6550",
-        iconBgColor: "#FF655010",
-      },
-      {
-        title: "Success Rate",
-        value: "78%",
-        subtitle: "Interviews scheduled",
-        iconName: "TrendingUp",
-        iconColor: "#FFB836",
-        iconBgColor: "#FFB83610",
-      },
-    ];
-
-    res.status(200).json({
-      success: true,
-      data: statsData
+    return success(res, {
+      stats: {
+        totalUsers:    { value: totalUsers,   trend: recentUsers },
+        totalLakes:    { value: totalLakes,   trend: recentLakes },
+        totalReports:  { value: totalReports, trend: 0 },
+        lakeRequests:  { value: pendingLakes, trend: 0 },
+        totalCatches:  { value: totalCatches, trend: 0 },
+        totalReviews:  { value: totalReviews, trend: 0 },
+        totalComments: { value: totalComments,trend: 0 },
+        openContacts:  { value: openContacts, trend: 0 },
+      }
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+    return serverError(res, error.message);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Get daily user activity for chart (last 7 days)
+// @route   GET /api/dashboard/user-activity
+// @access  Private (Admin)
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getUserActivity = async (req, res) => {
+  try {
+    const days = 7;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const DAYS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const result = [];
+
+    for (let i = days - 1; i >= 0; i--) {
+      const start = new Date();
+      start.setDate(start.getDate() - i);
+      start.setHours(0,0,0,0);
+      const end   = new Date(start);
+      end.setHours(23,59,59,999);
+
+      const count = await User.countDocuments({ createdAt: { $gte: start, $lte: end } });
+      result.push({ day: DAYS[start.getDay()], users: count });
+    }
+
+    return success(res, { userActivity: result });
+  } catch (error) {
+    return serverError(res, error.message);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Get reports submitted per week (last 4 weeks)
+// @route   GET /api/dashboard/reports-submitted
+// @access  Private (Admin)
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getReportsSubmitted = async (req, res) => {
+  try {
+    const result = [];
+    for (let i = 3; i >= 0; i--) {
+      const start = new Date(Date.now() - (i + 1) * 7 * 24 * 60 * 60 * 1000);
+      const end   = new Date(Date.now() - i * 7 * 24 * 60 * 60 * 1000);
+
+      const reports = await FishingReport.countDocuments({ createdAt: { $gte: start, $lt: end } });
+      result.push({ week: `Week-${4 - i}`, reports });
+    }
+    return success(res, { reportsSubmitted: result });
+  } catch (error) {
+    return serverError(res, error.message);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Get recent activity feed
+// @route   GET /api/dashboard/recent-activity
+// @access  Private (Admin)
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getRecentActivity = async (req, res) => {
+  try {
+    const { limit = 10 } = req.query;
+
+    const logs = await AuditLog.find()
+      .sort({ createdAt: -1 })
+      .limit(Number(limit))
+      .populate('user', 'name avatar')
+      .lean();
+
+    const activity = logs.map(log => {
+      const diff = Date.now() - new Date(log.createdAt).getTime();
+      const hours = Math.floor(diff / 3600000);
+      const mins  = Math.floor(diff / 60000);
+      const timeAgo = hours > 0 ? `${hours} hour${hours > 1 ? 's' : ''} ago`
+                    : mins > 0  ? `${mins} min${mins > 1 ? 's' : ''} ago`
+                    : 'just now';
+
+      return {
+        id:     log._id,
+        user:   { name: log.user?.name || 'System', avatar: log.user?.avatar || '' },
+        action: log.action.replace(/_/g, ' ').toLowerCase().replace(/^\w/, c => c.toUpperCase()),
+        lake:   log.details?.name || log.details?.lakeName || '',
+        time:   timeAgo,
+      };
+    });
+
+    return success(res, { recentActivity: activity });
+  } catch (error) {
+    return serverError(res, error.message);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Combined full dashboard (one call = all data)
+// @route   GET /api/dashboard
+// @access  Private (Admin / Manager)
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getDashboard = async (req, res) => {
+  try {
+    // Re-use sub-handlers by building a fake request/response chain is messy.
+    // Instead, inline the key queries:
+    const [
+      totalUsers, totalLakes, pendingLakes, totalCatches,
+      totalReports, totalReviews, openContacts, recentUsers, recentLakes,
+    ] = await Promise.all([
+      User.countDocuments(),
+      Lake.countDocuments({ status: 'active' }),
+      Lake.countDocuments({ status: 'pending' }),
+      BassPorn.countDocuments({ status: 'active' }),
+      FishingReport.countDocuments({ status: 'active' }),
+      Review.countDocuments({ status: 'active' }),
+      ContactMessage.countDocuments({ status: 'open' }),
+      User.countDocuments({ createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
+      Lake.countDocuments({ createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
+    ]);
+
+    // User activity (last 7 days)
+    const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const userActivity = [];
+    for (let i = 6; i >= 0; i--) {
+      const start = new Date(); start.setDate(start.getDate() - i); start.setHours(0,0,0,0);
+      const end   = new Date(start); end.setHours(23,59,59,999);
+      const count = await User.countDocuments({ createdAt: { $gte: start, $lte: end } });
+      userActivity.push({ day: DAYS[start.getDay()], users: count });
+    }
+
+    // Reports per week (last 4 weeks)
+    const reportsSubmitted = [];
+    for (let i = 3; i >= 0; i--) {
+      const start = new Date(Date.now() - (i + 1) * 7 * 24 * 60 * 60 * 1000);
+      const end   = new Date(Date.now() - i * 7 * 24 * 60 * 60 * 1000);
+      const reports = await FishingReport.countDocuments({ createdAt: { $gte: start, $lt: end } });
+      reportsSubmitted.push({ week: `Week-${4 - i}`, reports });
+    }
+
+    // Recent activity feed
+    const logs = await AuditLog.find()
+      .sort({ createdAt: -1 }).limit(8)
+      .populate('user', 'name avatar').lean();
+
+    const recentActivity = logs.map(log => {
+      const diff = Date.now() - new Date(log.createdAt).getTime();
+      const hours = Math.floor(diff / 3600000);
+      const mins  = Math.floor(diff / 60000);
+      const timeAgo = hours > 0 ? `${hours}h ago` : mins > 0 ? `${mins}m ago` : 'just now';
+      return {
+        id:     log._id,
+        user:   { name: log.user?.name || 'System', avatar: log.user?.avatar || '' },
+        action: log.action.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase()),
+        lake:   log.details?.name || log.details?.lakeName || '',
+        time:   timeAgo,
+      };
+    });
+
+    return success(res, {
+      stats: {
+        totalUsers:    { value: totalUsers,   trend: recentUsers },
+        totalLakes:    { value: totalLakes,   trend: recentLakes },
+        totalReports:  { value: totalReports, trend: 0 },
+        lakeRequests:  { value: pendingLakes, trend: 0 },
+        totalCatches:  { value: totalCatches, trend: 0 },
+        totalReviews:  { value: totalReviews, trend: 0 },
+        openContacts:  { value: openContacts, trend: 0 },
+      },
+      userActivity,
+      reportsSubmitted,
+      recentActivity,
+    });
+  } catch (error) {
+    return serverError(res, error.message);
   }
 };
