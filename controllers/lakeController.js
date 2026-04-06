@@ -38,14 +38,27 @@ exports.getLakes = async (req, res) => {
       page = 1, limit = 12, search = '', state = '',
       species = '', condition = '', clarity = '',
       minRating = 0, sortBy = 'rating', order = 'desc',
-      featured, status = 'active'
+      featured, status = ''
     } = req.query;
 
     const query = {};
 
-    // Status filter (admin can see all; public sees only active)
+    // Status filter:
+    // - admin/manager: see all by default, optional status query can narrow results
+    // - user/public: only active + closed
     const isAdmin = req.user && (req.user.role === 'admin' || req.user.role === 'manager');
-    query.status = isAdmin && status ? status : 'active';
+    if (isAdmin) {
+      if (status && status !== 'all') {
+        query.status = status;
+      }
+    } else {
+      const visibleStatuses = ['active', 'closed'];
+      if (status && visibleStatuses.includes(status)) {
+        query.status = status;
+      } else {
+        query.status = { $in: visibleStatuses };
+      }
+    }
 
     // Text search
     if (search) query.$text = { $search: search };
@@ -106,8 +119,8 @@ exports.getLakeById = async (req, res) => {
 
     if (!lake) return notFound(res, 'Lake not found');
 
-    // If viewing a pending lake, only admins/submitter can see it
-    if (lake.status !== 'active') {
+    // Public can see active/closed lakes. Pending/rejected are restricted.
+    if (!['active', 'closed'].includes(lake.status)) {
       const isAdmin = req.user && ['admin', 'manager'].includes(req.user.role);
       const isOwner = req.user && lake.submittedBy?._id?.toString() === req.user._id.toString();
       if (!isAdmin && !isOwner) return notFound(res, 'Lake not found');

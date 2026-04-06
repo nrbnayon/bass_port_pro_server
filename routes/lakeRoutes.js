@@ -6,16 +6,17 @@ const {
   deleteLakeReview, updateLakeStatus, getLakeReports, getFeaturedLakes,
 } = require('../controllers/lakeController');
 const { protect }          = require('../middleware/authMiddleware');
+const { optionalProtect }  = require('../middleware/authMiddleware');
 const { authProtected }    = require('../middleware/authMiddleware');
 const createUpload         = require('../middleware/uploadMiddleware');
 const lakeUpload           = createUpload('lakes');
 
 // ── Public ───────────────────────────────────────────────────────────────────
 router.get('/featured', getFeaturedLakes);
-router.get('/',         getLakes);
-router.get('/:id',      getLakeById);
-router.get('/:id/reviews', getLakeReviews);
-router.get('/:id/reports', getLakeReports);
+router.get('/',         optionalProtect, getLakes);
+router.get('/:id',      optionalProtect, getLakeById);
+router.get('/:id/reviews', optionalProtect, getLakeReviews);
+router.get('/:id/reports', optionalProtect, getLakeReports);
 
 // ── Authenticated ─────────────────────────────────────────────────────────────
 router.post('/', protect,

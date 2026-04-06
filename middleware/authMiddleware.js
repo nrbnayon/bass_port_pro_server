@@ -3,6 +3,33 @@ const User = require('../models/User');
 const { isBlacklisted } = require('../utils/tokenBlacklist');
 const { unauthorized, forbidden } = require('../utils/apiResponse');
 
+// ─── optionalProtect ─────────────────────────────────────────────────────────
+// Tries to attach req.user from JWT if provided, but never blocks the request.
+// Use on public routes that should behave differently for logged-in users.
+// ─────────────────────────────────────────────────────────────────────────────
+const optionalProtect = async (req, _res, next) => {
+  if (!req.headers.authorization || !req.headers.authorization.startsWith('Bearer')) {
+    return next();
+  }
+
+  try {
+    const token = req.headers.authorization.split(' ')[1];
+    const blacklisted = await isBlacklisted(token);
+    if (blacklisted) return next();
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+    const user = await User.findById(decoded.id).select('-password');
+
+    if (user && user.status === 'active') {
+      req.user = user;
+    }
+  } catch (_error) {
+    // Ignore invalid/missing token errors for optional auth.
+  }
+
+  return next();
+};
+
 // ─── protect ─────────────────────────────────────────────────────────────────
 // Verifies the JWT, checks blacklist & account status, attaches req.user.
 // Use on every authenticated route.
@@ -105,4 +132,4 @@ const requirePermission = (atom) => {
   };
 };
 
-module.exports = { protect, authProtected, requirePermission };
+module.exports = { protect, optionalProtect, authProtected, requirePermission };
