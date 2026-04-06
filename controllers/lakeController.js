@@ -182,7 +182,8 @@ exports.createLake = async (req, res) => {
 
     await AuditLog.create({
       user: req.user._id, action: 'LAKE_CREATE',
-      target: lake._id, targetType: 'lake',
+      target: lake._id, 
+      targetType: 'Lake',
       details: { name: lake.name, status: lake.status }
     });
 
@@ -248,7 +249,8 @@ exports.updateLake = async (req, res) => {
 
     await AuditLog.create({
       user: req.user._id, action: 'LAKE_UPDATE',
-      target: lake._id, targetType: 'lake',
+      target: lake._id, 
+      targetType: 'Lake',
       details: { name: lake.name }
     });
 
@@ -283,7 +285,8 @@ exports.deleteLake = async (req, res) => {
 
     await AuditLog.create({
       user: req.user._id, action: 'LAKE_DELETE',
-      target: lake._id, targetType: 'lake',
+      target: lake._id, 
+      targetType: 'Lake',
       details: { name: lake.name }
     });
 
@@ -466,7 +469,8 @@ exports.updateLakeStatus = async (req, res) => {
 
     await AuditLog.create({
       user: req.user._id, action: `LAKE_${status.toUpperCase()}`,
-      target: lake._id, targetType: 'lake',
+      target: lake._id, 
+      targetType: 'Lake',
       details: { name: lake.name, status }
     });
 

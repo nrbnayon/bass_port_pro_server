@@ -145,7 +145,8 @@ exports.updateContact = async (req, res) => {
 
     await AuditLog.create({
       user: req.user._id, action: 'CONTACT_UPDATE',
-      target: contact._id, targetType: 'contact',
+      target: contact._id, 
+      targetType: 'ContactMessage',
       details: { status, priority }
     });
 

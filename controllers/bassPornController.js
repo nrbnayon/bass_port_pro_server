@@ -178,7 +178,8 @@ exports.createCatch = async (req, res) => {
 
     await AuditLog.create({
       user: req.user._id, action: 'CATCH_CREATE',
-      target: catchDoc._id, targetType: 'catch',
+      target: catchDoc._id, 
+      targetType: 'BassPorn',
       details: { species, weight, lakeName: catchDoc.lakeName }
     });
 
@@ -263,7 +264,8 @@ exports.deleteCatch = async (req, res) => {
 
     await AuditLog.create({
       user: req.user._id, action: 'CATCH_DELETE',
-      target: catchDoc._id, targetType: 'catch',
+      target: catchDoc._id, 
+      targetType: 'BassPorn',
     });
 
     return success(res, null, 'Catch deleted successfully');

@@ -234,6 +234,7 @@ const deleteUserById = async (req, res) => {
       user:    req.user._id,
       action:  'DELETE_USER',
       target:  user._id,
+      targetType: 'User',
       details: { deletedEmail: user.email, deletedRole: user.role },
     });
 
@@ -297,6 +298,7 @@ const updateUserById = async (req, res) => {
       user:    req.user._id,
       action:  'UPDATE_USER',
       target:  updated._id,
+      targetType: 'User',
       details: { updatedFields: req.body },
     });
 
@@ -353,6 +355,7 @@ const createUser = async (req, res) => {
       user:    req.user._id,
       action:  'CREATE_USER',
       target:  user._id,
+      targetType: 'User',
       details: { role: user.role, permissions: user.permissions },
     });
 

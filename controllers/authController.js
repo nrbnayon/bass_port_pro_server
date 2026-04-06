@@ -74,6 +74,7 @@ const loginUser = async (req, res) => {
         user: user._id,
         action: 'LOGIN',
         target: user._id,
+        targetType: 'User',
         details: { ip: req.ip }
       });
 

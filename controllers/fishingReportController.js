@@ -154,7 +154,8 @@ exports.createReport = async (req, res) => {
 
     await AuditLog.create({
       user: req.user._id, action: 'REPORT_CREATE',
-      target: report._id, targetType: 'report',
+      target: report._id, 
+      targetType: 'FishingReport',
       details: { lakeName: report.lakeName }
     });
 
@@ -217,7 +218,8 @@ exports.deleteReport = async (req, res) => {
 
     await AuditLog.create({
       user: req.user._id, action: 'REPORT_DELETE',
-      target: report._id, targetType: 'report',
+      target: report._id, 
+      targetType: 'FishingReport',
     });
 
     return success(res, null, 'Report deleted successfully');
