@@ -1,5 +1,3 @@
-const Job = require('../models/Job');
-const Application = require('../models/Application');
 
 // @desc    Get dashboard stats
 // @route   GET /api/dashboard/stats

@@ -13,8 +13,6 @@ const https   = require('https');
 dotenv.config();
 
 // Route files
-const jobRoutes = require('./routes/jobRoutes');
-const applicationRoutes = require('./routes/applicationRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
@@ -22,7 +20,6 @@ const auditRoutes = require('./routes/auditRoutes');
 const leadRoutes = require('./routes/leadRoutes');
 const taskRoutes = require('./routes/taskRoutes');
 const reportRoutes = require('./routes/reportRoutes');
-const customerRoutes = require('./routes/customerRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
 const cookieParser = require('cookie-parser');
 const { cleanupBlacklist } = require('./utils/tokenBlacklist');
