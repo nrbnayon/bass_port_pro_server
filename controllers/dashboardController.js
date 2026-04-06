@@ -156,9 +156,16 @@ exports.getDashboard = async (req, res) => {
   try {
     // Re-use sub-handlers by building a fake request/response chain is messy.
     // Instead, inline the key queries:
+    const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const twoMonthsAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+
     const [
       totalUsers, totalLakes, pendingLakes, totalCatches,
-      totalReports, totalReviews, openContacts, recentUsers, recentLakes,
+      totalReports, totalReviews, openContacts, 
+      recentUsers, previousUsers,
+      recentLakes, previousLakes,
+      recentReports, recentRequests, 
+      recentCatches, recentReviews, recentContacts
     ] = await Promise.all([
       User.countDocuments(),
       Lake.countDocuments({ status: 'active' }),
@@ -167,9 +174,29 @@ exports.getDashboard = async (req, res) => {
       FishingReport.countDocuments({ status: 'active' }),
       Review.countDocuments({ status: 'active' }),
       ContactMessage.countDocuments({ status: 'open' }),
-      User.countDocuments({ createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
-      Lake.countDocuments({ createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
+      // User Growth
+      User.countDocuments({ createdAt: { $gte: monthAgo } }),
+      User.countDocuments({ createdAt: { $gte: twoMonthsAgo, $lt: monthAgo } }),
+      // Lake Growth
+      Lake.countDocuments({ status: 'active', createdAt: { $gte: monthAgo } }),
+      Lake.countDocuments({ status: 'active', createdAt: { $gte: twoMonthsAgo, $lt: monthAgo } }),
+      // Basic counts for others (this month)
+      FishingReport.countDocuments({ createdAt: { $gte: monthAgo } }),
+      Lake.countDocuments({ status: 'pending', createdAt: { $gte: monthAgo } }),
+      BassPorn.countDocuments({ createdAt: { $gte: monthAgo } }),
+      Review.countDocuments({ createdAt: { $gte: monthAgo } }),
+      ContactMessage.countDocuments({ createdAt: { $gte: monthAgo } }),
     ]);
+
+    // Helper to calc % change safely
+    const calcTrend = (recent, previous) => {
+      if (previous === 0) return recent > 0 ? 100 : 0;
+      const change = ((recent - previous) / previous) * 100;
+      return Math.round(change);
+    };
+
+    const userTrend = calcTrend(recentUsers, previousUsers);
+    const lakeTrend = calcTrend(recentLakes, previousLakes);
 
     // User activity (last 7 days)
     const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -211,13 +238,13 @@ exports.getDashboard = async (req, res) => {
 
     return success(res, {
       stats: {
-        totalUsers:    { value: totalUsers,   trend: recentUsers },
-        totalLakes:    { value: totalLakes,   trend: recentLakes },
-        totalReports:  { value: totalReports, trend: 0 },
-        lakeRequests:  { value: pendingLakes, trend: 0 },
-        totalCatches:  { value: totalCatches, trend: 0 },
-        totalReviews:  { value: totalReviews, trend: 0 },
-        openContacts:  { value: openContacts, trend: 0 },
+        totalUsers:    { value: totalUsers,   trend: userTrend },
+        totalLakes:    { value: totalLakes,   trend: lakeTrend },
+        totalReports:  { value: totalReports, trend: recentReports },
+        lakeRequests:  { value: pendingLakes, trend: recentRequests },
+        totalCatches:  { value: totalCatches, trend: recentCatches },
+        totalReviews:  { value: totalReviews, trend: recentReviews },
+        openContacts:  { value: openContacts,  trend: recentContacts },
       },
       userActivity,
       reportsSubmitted,
