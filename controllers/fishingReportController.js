@@ -36,7 +36,7 @@ exports.getReports = async (req, res) => {
     const query = {};
     const isAdmin = req.user && ["admin", "manager"].includes(req.user.role);
 
-    console.log(isAdmin, "isAdmin", req.user);
+    // console.log(isAdmin, "isAdmin", req.user);
 
     // Admin can filter by any status, or see all if status is not provided or 'all'
     if (isAdmin) {

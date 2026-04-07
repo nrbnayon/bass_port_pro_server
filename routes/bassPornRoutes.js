@@ -33,6 +33,9 @@ const catchUpload = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
 });
 
+// ── Admin management ─────────────────────────────────────────────────────────
+router.get('/admin', protect, authProtected('admin', 'manager'), getCatches);
+
 // ── Public ────────────────────────────────────────────────────────────────────
 router.get('/', optionalProtect, getCatches);
 
