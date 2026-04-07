@@ -43,15 +43,16 @@ router.get('/', optionalProtect, getCatches);
 router.get('/my',         protect, getMyCatches);
 router.get('/favourites', protect, getMyFavouriteCatches);
 
-router.get('/:id', optionalProtect, getCatchById);
-
 // ── Authenticated mutations ───────────────────────────────────────────────────
 router.post('/',         protect, catchUpload.single('image'), createCatch);
 router.post('/:id/like',      protect, toggleLikeCatch);
 router.post('/:id/favourite', protect, toggleFavouriteCatch);
 
-// ── Owner or Admin ────────────────────────────────────────────────────────────
+// ── Owner or Admin (Specific mutations - PUT/DELETE) ───────────────────────
 router.put('/:id',    protect, catchUpload.single('image'), updateCatch);
 router.delete('/:id', protect, deleteCatch);
+
+// ── GET Single catch (LAST priority) ─────────────────────────────────────────
+router.get('/:id', optionalProtect, getCatchById);
 
 module.exports = router;

@@ -268,3 +268,90 @@ exports.getDashboard = async (req, res) => {
     return serverError(res, error.message);
   }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Get platform performance and engagement analytics
+// @route   GET /api/dashboard/analytics
+// @access  Private (Admin / Manager)
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getAnalytics = async (req, res) => {
+  try {
+    const rangeDays = parseInt(req.query.range) || 30;
+    const startDate = new Date();
+    startDate.setHours(0,0,0,0);
+    startDate.setDate(startDate.getDate() - rangeDays + 1);
+
+    // 1. User Activity (Time-series) - Optimized with padding for empty days
+    const activityData = await User.aggregate([
+      { $match: { createdAt: { $gte: startDate } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+          users: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Create a map for easy lookup
+    const activityMap = activityData.reduce((acc, curr) => {
+      acc[curr._id] = curr.users;
+      return acc;
+    }, {});
+
+    // Fill in the gaps for every day in the range
+    const userActivityFormatted = [];
+    const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    
+    for (let i = 0; i < rangeDays; i++) {
+        const d = new Date(startDate);
+        d.setDate(d.getDate() + i);
+        const dateStr = d.toISOString().split('T')[0];
+        
+        userActivityFormatted.push({
+            day: DAYS[d.getDay()],
+            date: dateStr,
+            users: activityMap[dateStr] || 0
+        });
+    }
+
+    // 2. Lake Popularity (Using BassPorn as proxy)
+    const popularity = await BassPorn.aggregate([
+      { $match: { createdAt: { $gte: startDate }, status: 'active' } },
+      { $group: { _id: '$lakeName', volume: { $sum: 1 } } },
+      { $sort: { volume: -1 } },
+      { $limit: 10 }
+    ]);
+
+    const lakePopularityFormatted = popularity.map(p => ({
+      name: p._id || 'Unknown',
+      visits: p.volume
+    }));
+
+    // 3. Engagement Breakdown
+    const counts = await Promise.all([
+      User.countDocuments(),
+      Lake.countDocuments({ status: 'active' }),
+      FishingReport.countDocuments({ status: 'active' }),
+      Review.countDocuments({ status: 'active' }),
+    ]);
+
+    const [totalUsers, totalLakes, totalReports, totalReviews] = counts;
+    const totalEngagement = totalUsers + totalLakes + totalReports + totalReviews || 1;
+    
+    const engagementBreakdown = [
+      { name: 'Reports', value: totalReports, percentage: Math.round((totalReports / totalEngagement) * 100), color: '#0F172A' },
+      { name: 'Lake',    value: totalLakes,   percentage: Math.round((totalLakes / totalEngagement) * 100),   color: '#06B6D4' },
+      { name: 'Review',  value: totalReviews, percentage: Math.round((totalReviews / totalEngagement) * 100), color: '#22C55E' },
+      { name: 'User',    value: totalUsers,   percentage: Math.round((totalUsers / totalEngagement) * 100),   color: '#FB923C' },
+    ];
+
+    return success(res, {
+      userActivity: userActivityFormatted,
+      lakePopularity: lakePopularityFormatted,
+      engagementBreakdown
+    });
+
+  } catch (error) {
+    return serverError(res, error.message);
+  }
+};
