@@ -44,7 +44,7 @@ const fishingReportSchema = new mongoose.Schema({
   helpfulBy:   [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
 
   // ── Moderation ────────────────────────────────────────────────────────────
-  status:    { type: String, enum: ['active', 'pending', 'rejected', 'flagged'], default: 'active' },
+  status:    { type: String, enum: ['active', 'pending', 'rejected', 'flagged'], default: 'pending' },
   featured:  { type: Boolean, default: false },
 
 }, { timestamps: true });

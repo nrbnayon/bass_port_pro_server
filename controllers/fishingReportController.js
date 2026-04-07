@@ -10,6 +10,33 @@ const {
   forbidden,
 } = require("../utils/apiResponse");
 
+const VALID_WEATHER = new Set([
+  "Sunny",
+  "Clear",
+  "Partly Cloudy",
+  "Overcast",
+  "Rainy",
+  "Windy",
+  "Stormy",
+  "",
+]);
+
+const VALID_WATER_LEVEL = new Set([
+  "Normal",
+  "High",
+  "Low",
+  "Rising",
+  "Falling",
+  "",
+]);
+
+const VALID_CLARITY = new Set(["Clear", "Stained", "Muddy", ""]);
+
+const VALID_PRESSURE = new Set(["Stable", "Rising", "Falling", ""]);
+
+const normalizeEnumValue = (value, validValues) =>
+  validValues.has(value) ? value : "";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // @desc    Get all fishing reports (paginated, filterable)
 // @route   GET /api/reports
@@ -19,7 +46,7 @@ exports.getReports = async (req, res) => {
   try {
     const {
       page = 1,
-      limit = 6,
+      limit = 10,
       search = "",
       lake = "",
       lakeId = "",
@@ -171,6 +198,7 @@ exports.createReport = async (req, res) => {
       lakeId,
       title,
       text,
+      species,
       tags,
       conditions,
       catchCount,
@@ -198,12 +226,20 @@ exports.createReport = async (req, res) => {
       lakeName: resolvedLake?.name || lakeName,
       title: title || "",
       text,
+      species: species || "",
       tags: Array.isArray(tags)
         ? tags
         : tags
           ? tags.split(",").map((t) => t.trim())
           : [],
-      conditions: conditions || {},
+      conditions: {
+        temp: conditions?.temp || "",
+        weather: normalizeEnumValue(conditions?.weather, VALID_WEATHER),
+        wind: conditions?.wind || "",
+        waterLevel: normalizeEnumValue(conditions?.waterLevel, VALID_WATER_LEVEL),
+        clarity: normalizeEnumValue(conditions?.clarity, VALID_CLARITY),
+        pressure: normalizeEnumValue(conditions?.pressure, VALID_PRESSURE),
+      },
       catchCount: Number(catchCount) || 0,
       biggestCatch: biggestCatch ? Number(biggestCatch) : null,
       fishedAt: fishedAt ? new Date(fishedAt) : new Date(),
