@@ -167,7 +167,7 @@ exports.createLake = async (req, res) => {
       name, state, description, size, elevation, maxDepth, avgDepth,
       species, nearestCity, facilities,
       catchRate, recordBass, color, seasonalPatterns,
-      conditions, coordinates, featured
+      conditions, coordinates, featured, bestSeason
     } = req.body;
 
     if (!name || !state) return badRequest(res, 'Name and state are required');
@@ -207,6 +207,7 @@ exports.createLake = async (req, res) => {
       submittedBy: req.user._id,
       approvedBy:  isAdmin ? req.user._id : null,
       approvedAt:  isAdmin ? new Date() : null,
+      bestSeason:  bestSeason || '',
     });
 
     await AuditLog.create({
@@ -241,7 +242,7 @@ exports.updateLake = async (req, res) => {
     const updatable = [
       'name', 'state', 'description', 'size', 'elevation', 'maxDepth', 'avgDepth',
       'species', 'nearestCity', 'facilities', 'catchRate', 'recordBass', 'color',
-      'seasonalPatterns', 'conditions', 'coordinates', 'featured', 'status',
+      'seasonalPatterns', 'conditions', 'coordinates', 'featured', 'status', 'bestSeason',
     ];
 
     updatable.forEach((field) => {

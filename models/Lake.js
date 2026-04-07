@@ -36,8 +36,9 @@ const lakeSchema = new mongoose.Schema(
     },
     nearestCity: { type: String, default: "" },
 
-    // ── Species ───────────────────────────────────────────────────────────────
+    // ── Species & Stats ──────────────────────────────────────────────────────
     species: [{ type: String }],
+    bestSeason: { type: String, default: "" }, // e.g. "Spring, Fall"
 
     // ── Current Conditions (updated periodically) ──────────────────────────
     conditions: {
