@@ -4,7 +4,7 @@ const {
   getCatches, getCatchById, createCatch, updateCatch, deleteCatch,
   toggleLikeCatch, toggleFavouriteCatch, getMyCatches, getMyFavouriteCatches,
 } = require('../controllers/bassPornController');
-const { protect, authProtected } = require('../middleware/authMiddleware');
+const { protect, optionalProtect, authProtected } = require('../middleware/authMiddleware');
 
 // ── Upload middleware for catch images ───────────────────────────────────────
 const multer = require('multer');
@@ -34,13 +34,13 @@ const catchUpload = multer({
 });
 
 // ── Public ────────────────────────────────────────────────────────────────────
-router.get('/', getCatches);
+router.get('/', optionalProtect, getCatches);
 
 // ── Authenticated-only named routes (MUST come before /:id) ─────────────────
 router.get('/my',         protect, getMyCatches);
 router.get('/favourites', protect, getMyFavouriteCatches);
 
-router.get('/:id', getCatchById);
+router.get('/:id', optionalProtect, getCatchById);
 
 // ── Authenticated mutations ───────────────────────────────────────────────────
 router.post('/',         protect, catchUpload.single('image'), createCatch);

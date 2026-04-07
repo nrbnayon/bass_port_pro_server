@@ -23,7 +23,7 @@ exports.getCatches = async (req, res) => {
       page = 1, limit = 12,
       search = '', species = '', lake = '',
       sortBy = 'createdAt', order = 'desc',
-      user: userId, featured, status = 'active'
+      user: userId, featured, status: queryStatus
     } = req.query;
 
     const query = {};
@@ -33,11 +33,12 @@ exports.getCatches = async (req, res) => {
     const isAdmin = ['admin', 'manager'].includes(userRole);
     
     if (isAdmin) {
-      if (status && status !== 'all') {
-        query.status = status;
+      if (queryStatus && queryStatus !== 'all') {
+        query.status = queryStatus;
       }
-      // if no status or 'all', don't filter by status to show everything
+      // If queryStatus is empty or 'all', admin sees everything
     } else {
+      // Non-admins (public) can ONLY see active catches
       query.status = 'active';
     }
 
@@ -70,6 +71,19 @@ exports.getCatches = async (req, res) => {
       BassPorn.countDocuments(query),
     ]);
 
+    // For admin users, fetch status counts for the dashboard stats
+    let statusCounts = null;
+    if (isAdmin) {
+      const countsGroup = await BassPorn.aggregate([
+        { $group: { _id: '$status', count: { $sum: 1 } } }
+      ]);
+      statusCounts = {
+        active:  countsGroup.find(g => g._id === 'active')?.count  || 0,
+        pending: countsGroup.find(g => g._id === 'pending')?.count || 0,
+        total:   countsGroup.reduce((acc, curr) => acc + curr.count, 0)
+      };
+    }
+
     // Inject isFavourite + isLiked per item for the authenticated user
     let favouriteIds = new Set();
     let likedIds     = new Set();
@@ -90,6 +104,7 @@ exports.getCatches = async (req, res) => {
 
     return success(res, {
       catches: result,
+      statusCounts,
       pagination: {
         page: Number(page), limit: Number(limit), total,
         pages: Math.ceil(total / Number(limit)),
@@ -112,7 +127,10 @@ exports.getCatchById = async (req, res) => {
       .populate('lake', 'name slug state')
       .lean();
 
-    if (!catchItem || catchItem.status === 'rejected') return notFound(res, 'Catch not found');
+    if (!catchItem) return notFound(res, 'Catch not found');
+
+    const isAdmin = ['admin', 'manager'].includes(req.user?.role?.toLowerCase() || '');
+    if (catchItem.status === 'rejected' && !isAdmin) return notFound(res, 'Catch not found');
 
     let isFavourite = false;
     let isLiked     = false;
@@ -218,8 +236,14 @@ exports.updateCatch = async (req, res) => {
     const isOwner = catchDoc.user.toString() === req.user._id.toString();
     if (!isAdmin && !isOwner) return forbidden(res, 'Not authorized to update this catch');
 
-    const updatable = ['species', 'weight', 'weightUnit', 'length', 'technique', 'bait', 'depth', 'description', 'caughtAt', 'weatherSnapshot', 'coordinates', 'featured', 'status'];
+    const oldStatus = catchDoc.status;
+    const oldLake   = catchDoc.lake;
+
+    const updatable = ['species', 'weight', 'weightUnit', 'length', 'technique', 'bait', 'depth', 'description', 'caughtAt', 'weatherSnapshot', 'coordinates', 'featured', 'status', 'lake', 'lakeName'];
     updatable.forEach(f => { if (req.body[f] !== undefined) catchDoc[f] = req.body[f]; });
+
+    const newStatus = catchDoc.status;
+    const newLake   = catchDoc.lake;
 
     if (req.file) {
       if (catchDoc.image && catchDoc.image.includes('/uploads/')) {
@@ -233,6 +257,22 @@ exports.updateCatch = async (req, res) => {
     }
 
     await catchDoc.save();
+
+    // Side-effects on Lake counters
+    const lakeChanged = oldLake?.toString() !== newLake?.toString();
+    const statusChanged = oldStatus !== newStatus;
+
+    if (statusChanged || lakeChanged) {
+      // 1. Decrement old lake if it was active
+      if (oldLake && oldStatus === 'active') {
+        await Lake.findByIdAndUpdate(oldLake, { $inc: { catchCount: -1 } });
+      }
+      // 2. Increment new lake if it is now active
+      if (newLake && newStatus === 'active') {
+        await Lake.findByIdAndUpdate(newLake, { $inc: { catchCount: 1 } });
+      }
+    }
+
     const updated = await BassPorn.findById(catchDoc._id).populate('user', 'name avatar').populate('lake', 'name slug').lean();
     return success(res, { catch: updated }, 'Catch updated successfully');
   } catch (error) {
@@ -263,8 +303,8 @@ exports.deleteCatch = async (req, res) => {
       } catch (_) {}
     }
 
-    // Decrement lake counter
-    if (catchDoc.lake) {
+    // Decrement lake counter ONLY IF it was active
+    if (catchDoc.lake && catchDoc.status === 'active') {
       await Lake.findByIdAndUpdate(catchDoc.lake, { $inc: { catchCount: -1 } });
     }
 
