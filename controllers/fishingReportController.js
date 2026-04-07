@@ -109,7 +109,7 @@ exports.getReports = async (req, res) => {
         .skip(skip)
         .limit(Number(limit))
         .populate("user", "name avatar location")
-        .populate("lake", "name slug state")
+        .populate("lake", "name slug state species")
         .lean(),
       FishingReport.countDocuments(query),
     ]);
@@ -153,7 +153,7 @@ exports.getReportById = async (req, res) => {
   try {
     const report = await FishingReport.findById(req.params.id)
       .populate("user", "name avatar location")
-      .populate("lake", "name slug state image")
+      .populate("lake", "name slug state image species")
       .lean();
 
     if (!report || report.status === "rejected")
@@ -199,6 +199,7 @@ exports.createReport = async (req, res) => {
       title,
       text,
       species,
+      image,
       tags,
       conditions,
       catchCount,
@@ -220,13 +221,16 @@ exports.createReport = async (req, res) => {
       });
     }
 
+    const resolvedSpecies = species || resolvedLake?.species?.[0] || "";
+
     const report = await FishingReport.create({
       user: req.user._id,
       lake: resolvedLake?._id || null,
       lakeName: resolvedLake?.name || lakeName,
       title: title || "",
       text,
-      species: species || "",
+      species: resolvedSpecies,
+      image: image || "",
       tags: Array.isArray(tags)
         ? tags
         : tags
@@ -243,7 +247,7 @@ exports.createReport = async (req, res) => {
       catchCount: Number(catchCount) || 0,
       biggestCatch: biggestCatch ? Number(biggestCatch) : null,
       fishedAt: fishedAt ? new Date(fishedAt) : new Date(),
-      status: "active",
+      status: "pending",
     });
 
     // Increment lake reportCount
@@ -263,7 +267,7 @@ exports.createReport = async (req, res) => {
 
     const populated = await FishingReport.findById(report._id)
       .populate("user", "name avatar")
-      .populate("lake", "name slug")
+      .populate("lake", "name slug species")
       .lean();
 
     return created(
@@ -309,7 +313,7 @@ exports.updateReport = async (req, res) => {
     await report.save();
     const updated = await FishingReport.findById(report._id)
       .populate("user", "name avatar")
-      .populate("lake", "name slug")
+      .populate("lake", "name slug species")
       .lean();
     return success(res, { report: updated }, "Report updated successfully");
   } catch (error) {

@@ -18,7 +18,7 @@ const bassPornSchema = new mongoose.Schema({
   length:    { type: Number, default: null },   // inches as number
   technique: { type: String, required: true, trim: true },
   bait:      { type: String, default: '' },
-  depth:     { type: String, default: '' },     // e.g. "15ft"
+  depth:     { type: String, default: '5ft' },     // e.g. "15ft"
   description:{ type: String, default: '' },
 
   // ── Date / Location ───────────────────────────────────────────────────────

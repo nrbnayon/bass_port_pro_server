@@ -16,6 +16,7 @@ const fishingReportSchema = new mongoose.Schema({
   title:    { type: String, default: '' },
   text:     { type: String, required: true },
   species:  { type: String, default: '' },
+  image:    { type: String, default: '' },
   tags:     [{ type: String }],
 
   // ── Fishing Conditions ────────────────────────────────────────────────────
