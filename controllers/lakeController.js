@@ -88,8 +88,24 @@ exports.getLakes = async (req, res) => {
       Lake.countDocuments(query),
     ]);
 
+    // Populate isFavourite for each lake if user is logged in
+    let finalLakes = lakes;
+    if (req.user) {
+      const lakeIds = lakes.map(l => l._id);
+      const favourites = await UserFavourite.find({
+        user: req.user._id,
+        lake: { $in: lakeIds },
+        targetType: 'lake'
+      });
+      const favouriteSet = new Set(favourites.map(f => f.lake.toString()));
+      finalLakes = lakes.map(l => ({
+        ...l,
+        isFavourite: favouriteSet.has(l._id.toString())
+      }));
+    }
+
     return success(res, {
-      lakes,
+      lakes: finalLakes,
       pagination: {
         page: Number(page),
         limit: Number(limit),
@@ -319,18 +335,25 @@ exports.toggleFavouriteLake = async (req, res) => {
     const lake = await Lake.findById(req.params.id);
     if (!lake) return notFound(res, 'Lake not found');
 
-    const existing = await UserFavourite.findOne({
-      user: req.user._id, lake: lake._id, targetType: 'lake'
-    });
+    const query = { user: req.user._id, lake: lake._id, targetType: 'lake' };
 
     let isFavourite;
-    if (existing) {
-      await existing.deleteOne();
+    const deleted = await UserFavourite.findOneAndDelete(query);
+
+    if (deleted) {
       await Lake.findByIdAndUpdate(lake._id, { $inc: { favouriteCount: -1 } });
       isFavourite = false;
     } else {
-      await UserFavourite.create({ user: req.user._id, lake: lake._id, targetType: 'lake' });
-      await Lake.findByIdAndUpdate(lake._id, { $inc: { favouriteCount: 1 } });
+      const upsertResult = await UserFavourite.updateOne(
+        query,
+        { $setOnInsert: query },
+        { upsert: true },
+      );
+
+      if (upsertResult.upsertedCount > 0) {
+        await Lake.findByIdAndUpdate(lake._id, { $inc: { favouriteCount: 1 } });
+      }
+
       isFavourite = true;
     }
 
@@ -538,7 +561,23 @@ exports.getFeaturedLakes = async (req, res) => {
       .select('-seasonalPatterns -__v')
       .lean();
 
-    return success(res, { lakes });
+    // Populate isFavourite for each lake if user is logged in
+    let finalLakes = lakes;
+    if (req.user) {
+      const lakeIds = lakes.map(l => l._id);
+      const favourites = await UserFavourite.find({
+        user: req.user._id,
+        lake: { $in: lakeIds },
+        targetType: 'lake'
+      });
+      const favouriteSet = new Set(favourites.map(f => f.lake.toString()));
+      finalLakes = lakes.map(l => ({
+        ...l,
+        isFavourite: favouriteSet.has(l._id.toString())
+      }));
+    }
+
+    return success(res, { lakes: finalLakes });
   } catch (error) {
     return serverError(res, error);
   }

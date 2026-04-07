@@ -4,6 +4,10 @@ const bcrypt = require('bcrypt');
 
 const User     = require('../models/User');
 const AuditLog = require('../models/AuditLog');
+const BassPorn = require('../models/BassPorn');
+const FishingReport = require('../models/FishingReport');
+const UserFavourite = require('../models/UserFavourite');
+const Lake = require('../models/Lake');
 const {
   successResponse,
   createdResponse,
@@ -57,9 +61,52 @@ const checkGrantCeiling = (managerPerms, requestedPerms) =>
 // @access Private (any authenticated user)
 const getMyProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('-password -refreshToken');
+    const user = await User.findById(req.user._id).select('-password -refreshToken').lean();
     if (!user) return notFound(res, 'User not found');
-    return successResponse(res, 'Profile fetched successfully', user);
+
+    // Fetch counts for dashboard
+    const [catchCount, reportCount, favouriteLakeCount, biggestCatchResult] = await Promise.all([
+      BassPorn.countDocuments({ user: req.user._id }),
+      FishingReport.countDocuments({ user: req.user._id }),
+      UserFavourite.countDocuments({ user: req.user._id, targetType: 'lake' }),
+      BassPorn.findOne({ user: req.user._id }).sort({ weight: -1 }).select('weight').lean(),
+    ]);
+
+    // Fetch favorite lakes list
+    const favouriteLakes = await UserFavourite.find({ user: req.user._id, targetType: 'lake' })
+      .populate({
+        path: 'lake',
+        select: 'name state image rating ratingCount reviewCount description slug catchRate recordBass condition clarity size conditions species'
+      })
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .lean();
+
+    // Flatten to just lake objects
+    const lakes = favouriteLakes.map(f => ({
+      ...f.lake,
+      isFavourite: true,
+      id: f.lake.slug, // map slug back to id for frontend compatibility
+    }));
+
+    // Fetch recent catches
+    const recentCatches = await BassPorn.find({ user: req.user._id })
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean();
+
+    return successResponse(res, 'Profile fetched successfully', {
+      ...user,
+      stats: {
+        catches: catchCount,
+        reports: reportCount,
+        favorites: favouriteLakeCount,
+        biggestCatch: biggestCatchResult?.weight || 0,
+        totalWeight: 0, // Could be aggregated later if needed
+      },
+      favouriteLakes: lakes,
+      myCatches: recentCatches,
+    });
   } catch (err) {
     return serverError(res, err);
   }

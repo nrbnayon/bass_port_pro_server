@@ -362,14 +362,19 @@ exports.toggleFavouriteCatch = async (req, res) => {
     const catchDoc = await BassPorn.findById(req.params.id);
     if (!catchDoc) return notFound(res, 'Catch not found');
 
-    const existing = await UserFavourite.findOne({ user: req.user._id, catch: catchDoc._id, targetType: 'catch' });
+    const query = { user: req.user._id, catch: catchDoc._id, targetType: 'catch' };
 
     let isFavourite;
-    if (existing) {
-      await existing.deleteOne();
+    const deleted = await UserFavourite.findOneAndDelete(query);
+
+    if (deleted) {
       isFavourite = false;
     } else {
-      await UserFavourite.create({ user: req.user._id, catch: catchDoc._id, targetType: 'catch' });
+      await UserFavourite.updateOne(
+        query,
+        { $setOnInsert: query },
+        { upsert: true },
+      );
       isFavourite = true;
     }
 

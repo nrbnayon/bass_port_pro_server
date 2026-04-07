@@ -15,6 +15,7 @@ dotenv.config();
 const connectDB           = require('./config/db');
 const { cleanupBlacklist} = require('./utils/tokenBlacklist');
 const seedAdmin           = require('./scripts/seedAdmin');
+const { syncUserFavouriteIndexes } = require('./utils/syncUserFavouriteIndexes');
 
 // ── Route imports ──────────────────────────────────────────────────────────
 const authRoutes          = require('./routes/authRoutes');
@@ -31,8 +32,14 @@ const commentRoutes       = require('./routes/commentRoutes');
 const contactRoutes       = require('./routes/contactRoutes');
 
 // ── Connect DB & seed ──────────────────────────────────────────────────────
-connectDB();
-seedAdmin();
+connectDB()
+  .then(async () => {
+    await syncUserFavouriteIndexes();
+    await seedAdmin();
+  })
+  .catch((error) => {
+    console.error('Startup DB init failed:', error.message);
+  });
 
 const app = express();
 
@@ -133,7 +140,7 @@ app.get('/api/health', (_req, res) => {
     timestamp: new Date().toISOString(),
     db: {
       status: dbState,
-      host: mongoose.connection.host || null,
+      // host: mongoose.connection.host || null,
       name: mongoose.connection.name || null,
     },
   };
