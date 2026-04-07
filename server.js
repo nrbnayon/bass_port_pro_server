@@ -7,6 +7,7 @@ const path         = require('path');
 const fs           = require('fs');
 const https        = require('https');
 const cookieParser = require('cookie-parser');
+const mongoose     = require('mongoose');
 
 // Load env vars
 dotenv.config();
@@ -114,6 +115,31 @@ app.get('/', (_req, res) => {
       dashboard: '/api/dashboard',
     }
   });
+});
+
+app.get('/api/health', (_req, res) => {
+  const dbStates = {
+    0: 'disconnected',
+    1: 'connected',
+    2: 'connecting',
+    3: 'disconnecting',
+  };
+
+  const dbState = dbStates[mongoose.connection.readyState] || 'unknown';
+  const payload = {
+    status: dbState === 'connected' ? 'ok' : 'degraded',
+    service: 'BassInsight API',
+    uptimeSec: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+    db: {
+      status: dbState,
+      host: mongoose.connection.host || null,
+      name: mongoose.connection.name || null,
+    },
+  };
+
+  const statusCode = dbState === 'connected' ? 200 : 503;
+  return res.status(statusCode).json(payload);
 });
 
 // ── 404 handler ────────────────────────────────────────────────────────────

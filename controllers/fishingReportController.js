@@ -175,7 +175,6 @@ exports.createReport = async (req, res) => {
       conditions,
       catchCount,
       biggestCatch,
-      score,
       fishedAt,
     } = req.body;
 
@@ -207,7 +206,6 @@ exports.createReport = async (req, res) => {
       conditions: conditions || {},
       catchCount: Number(catchCount) || 0,
       biggestCatch: biggestCatch ? Number(biggestCatch) : null,
-      score: Number(score) || 0,
       fishedAt: fishedAt ? new Date(fishedAt) : new Date(),
       status: "active",
     });
@@ -264,7 +262,6 @@ exports.updateReport = async (req, res) => {
       "conditions",
       "catchCount",
       "biggestCatch",
-      "score",
       "fishedAt",
       "featured",
       "status",

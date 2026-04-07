@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { calculateReportScore } = require('../utils/reportScore');
 
 /**
  * FishingReport — angler-submitted fishing condition reports
@@ -53,5 +54,9 @@ fishingReportSchema.index({ user: 1, createdAt: -1 });
 fishingReportSchema.index({ lake: 1, createdAt: -1 });
 fishingReportSchema.index({ status: 1, fishedAt: -1 });
 fishingReportSchema.index({ 'conditions.weather': 1 });
+
+fishingReportSchema.pre('validate', function() {
+  this.score = calculateReportScore(this);
+});
 
 module.exports = mongoose.model('FishingReport', fishingReportSchema);
