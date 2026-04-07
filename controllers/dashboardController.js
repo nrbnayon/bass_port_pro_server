@@ -15,6 +15,9 @@ const { success, serverError } = require('../utils/apiResponse');
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getStats = async (req, res) => {
   try {
+    const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const twoMonthsAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+
     const [
       totalUsers,
       totalLakes,
@@ -25,7 +28,9 @@ exports.getStats = async (req, res) => {
       totalComments,
       openContacts,
       recentUsers,
+      previousUsers,
       recentLakes,
+      previousLakes,
     ] = await Promise.all([
       User.countDocuments(),
       Lake.countDocuments({ status: 'active' }),
@@ -35,16 +40,19 @@ exports.getStats = async (req, res) => {
       Review.countDocuments({ status: 'active' }),
       Comment.countDocuments({ status: 'active' }),
       ContactMessage.countDocuments({ status: 'open' }),
-      // Users registered in last 30 days
-      User.countDocuments({ createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
-      // Lakes added in last 30 days
-      Lake.countDocuments({ createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
+      User.countDocuments({ createdAt: { $gte: monthAgo } }),
+      User.countDocuments({ createdAt: { $gte: twoMonthsAgo, $lt: monthAgo } }),
+      Lake.countDocuments({ status: 'active', createdAt: { $gte: monthAgo } }),
+      Lake.countDocuments({ status: 'active', createdAt: { $gte: twoMonthsAgo, $lt: monthAgo } }),
     ]);
+
+    const usersTrend = recentUsers - previousUsers;
+    const lakesTrend = recentLakes - previousLakes;
 
     return success(res, {
       stats: {
-        totalUsers:    { value: totalUsers,   trend: recentUsers },
-        totalLakes:    { value: totalLakes,   trend: recentLakes },
+        totalUsers:    { value: totalUsers,   trend: usersTrend },
+        totalLakes:    { value: totalLakes,   trend: lakesTrend },
         totalReports:  { value: totalReports, trend: 0 },
         lakeRequests:  { value: pendingLakes, trend: 0 },
         totalCatches:  { value: totalCatches, trend: 0 },
@@ -188,15 +196,9 @@ exports.getDashboard = async (req, res) => {
       ContactMessage.countDocuments({ createdAt: { $gte: monthAgo } }),
     ]);
 
-    // Helper to calc % change safely
-    const calcTrend = (recent, previous) => {
-      if (previous === 0) return recent > 0 ? 100 : 0;
-      const change = ((recent - previous) / previous) * 100;
-      return Math.round(change);
-    };
-
-    const userTrend = calcTrend(recentUsers, previousUsers);
-    const lakeTrend = calcTrend(recentLakes, previousLakes);
+    // Month-over-month deltas keep KPI trends readable and consistent.
+    const userTrend = recentUsers - previousUsers;
+    const lakeTrend = recentLakes - previousLakes;
 
     // User activity (last 7 days)
     const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];

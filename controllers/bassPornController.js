@@ -28,8 +28,18 @@ exports.getCatches = async (req, res) => {
 
     const query = {};
 
-    const isAdmin = req.user && ['admin', 'manager'].includes(req.user.role);
-    query.status = isAdmin && status ? status : 'active';
+    // ── Admin Recognition ──────────────────────────────────────────
+    const userRole = req.user?.role?.toLowerCase() || '';
+    const isAdmin = ['admin', 'manager'].includes(userRole);
+    
+    if (isAdmin) {
+      if (status && status !== 'all') {
+        query.status = status;
+      }
+      // if no status or 'all', don't filter by status to show everything
+    } else {
+      query.status = 'active';
+    }
 
     if (search) {
       query.$or = [
