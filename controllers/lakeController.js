@@ -541,15 +541,31 @@ exports.getLakeReports = async (req, res) => {
     const lake = await Lake.findById(req.params.id);
     if (!lake) return notFound(res, 'Lake not found');
 
+    let query = { lake: lake._id, status: 'active' };
+    
+    if (req.user) {
+      if (['admin', 'manager'].includes(req.user.role)) {
+        query = { lake: lake._id, status: { $in: ['active', 'pending'] } };
+      } else {
+        query = {
+          lake: lake._id,
+          $or: [
+            { status: 'active' },
+            { user: req.user._id, status: 'pending' }
+          ]
+        };
+      }
+    }
+
     const skip = (Number(page) - 1) * Number(limit);
     const [reports, total] = await Promise.all([
-      FishingReport.find({ lake: lake._id, status: 'active' })
+      FishingReport.find(query)
                    .sort({ fishedAt: -1 })
                    .skip(skip)
                    .limit(Number(limit))
                    .populate('user', 'name avatar')
                    .lean(),
-      FishingReport.countDocuments({ lake: lake._id, status: 'active' }),
+      FishingReport.countDocuments(query),
     ]);
 
     return success(res, {
