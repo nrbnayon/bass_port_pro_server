@@ -3,7 +3,7 @@ const router   = express.Router();
 const {
   getLakes, getLakeById, createLake, updateLake, deleteLake,
   toggleFavouriteLake, getLakeReviews, createOrUpdateLakeReview,
-  deleteLakeReview, updateLakeStatus, getLakeReports, getFeaturedLakes,
+  deleteLakeReview, updateLakeStatus, getLakeReports, getFeaturedLakes, getLakeNames,
 } = require('../controllers/lakeController');
 const { protect }          = require('../middleware/authMiddleware');
 const { optionalProtect }  = require('../middleware/authMiddleware');
@@ -13,6 +13,7 @@ const lakeUpload           = createUpload('lakes');
 
 // ── Public ───────────────────────────────────────────────────────────────────
 router.get('/featured', getFeaturedLakes);
+router.get('/names',    optionalProtect, getLakeNames);
 router.get('/',         optionalProtect, getLakes);
 router.get('/:id',      optionalProtect, getLakeById);
 router.get('/:id/reviews', optionalProtect, getLakeReviews);

@@ -119,6 +119,31 @@ exports.getLakes = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// @desc    Get unique lake names
+// @route   GET /api/lakes/names
+// @access  Public
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getLakeNames = async (req, res) => {
+  try {
+    const isAdmin = req.user && ['admin', 'manager'].includes(req.user.role);
+
+    const query = isAdmin
+      ? {}
+      : { status: { $in: ['active', 'closed'] } };
+
+    const names = await Lake.distinct('name', query);
+
+    return success(res, {
+      lakes: names
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b)),
+    });
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // @desc    Get single lake by ID or slug
 // @route   GET /api/lakes/:id
 // @access  Public
