@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
+    "build": "echo 'No build step required for Node.js backend'",
     "seed:seedReports": "node scripts/seedReports.js",
     "seed:bassporn": "node scripts/seedBassPorn.js",
     "test": "echo \"Error: no test specified\" && exit 1"
