@@ -39,6 +39,7 @@ const lakeSchema = new mongoose.Schema(
     // ── Species & Stats ──────────────────────────────────────────────────────
     species: [{ type: String }],
     bestSeason: { type: String, default: "" }, // e.g. "Spring, Fall"
+    topTechniques: [{ type: String }],
 
     // ── Current Conditions (updated periodically) ──────────────────────────
     conditions: {

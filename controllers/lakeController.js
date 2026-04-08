@@ -163,9 +163,11 @@ exports.createLake = async (req, res) => {
   try {
     const isAdmin = req.user && ['admin', 'manager'].includes(req.user.role);
 
+    const toTitleCase = (str) => typeof str === 'string' ? str.trim().toLowerCase().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : '';
+
     const {
       name, state, description, size, elevation, maxDepth, avgDepth,
-      species, nearestCity, facilities,
+      species, topTechniques, nearestCity, facilities,
       catchRate, recordBass, color, seasonalPatterns,
       conditions, coordinates, featured, bestSeason
     } = req.body;
@@ -193,6 +195,10 @@ exports.createLake = async (req, res) => {
       maxDepth:    Number(maxDepth)  || 0,
       avgDepth:    Number(avgDepth)  || 0,
       species:     Array.isArray(species) ? species : (species ? [species] : []),
+      topTechniques: Array.from(new Set(
+        (Array.isArray(topTechniques) ? topTechniques : (topTechniques ? [topTechniques] : []))
+        .map(tTitle => toTitleCase(tTitle)).filter(Boolean)
+      )),
       nearestCity: nearestCity || '',
       facilities:  facilities  || {},
       catchRate:   Number(catchRate)  || 0,
@@ -241,13 +247,20 @@ exports.updateLake = async (req, res) => {
     // Allowed update fields
     const updatable = [
       'name', 'state', 'description', 'size', 'elevation', 'maxDepth', 'avgDepth',
-      'species', 'nearestCity', 'facilities', 'catchRate', 'recordBass', 'color',
+      'species', 'topTechniques', 'nearestCity', 'facilities', 'catchRate', 'recordBass', 'color',
       'seasonalPatterns', 'conditions', 'coordinates', 'featured', 'status', 'bestSeason',
     ];
 
+    const toTitleCase = (str) => typeof str === 'string' ? str.trim().toLowerCase().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : '';
+
     updatable.forEach((field) => {
       if (req.body[field] !== undefined) {
-        lake[field] = req.body[field];
+        if (field === 'topTechniques') {
+          const rawTechs = Array.isArray(req.body[field]) ? req.body[field] : [req.body[field]];
+          lake[field] = Array.from(new Set(rawTechs.map(tTitle => toTitleCase(tTitle)).filter(Boolean)));
+        } else {
+          lake[field] = req.body[field];
+        }
       }
     });
 

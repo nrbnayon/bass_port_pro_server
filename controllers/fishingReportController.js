@@ -294,11 +294,17 @@ exports.createReport = async (req, res) => {
       status: "pending",
     });
 
-    // Increment lake reportCount
+    // Increment lake reportCount and add unique techniques
     if (resolvedLake) {
-      await Lake.findByIdAndUpdate(resolvedLake._id, {
-        $inc: { reportCount: 1 },
-      });
+      const toTitleCase = (str) => typeof str === 'string' ? str.trim().toLowerCase().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : '';
+      const validTechs = Array.from(new Set(report.tags.map(t => toTitleCase(t)).filter(Boolean)));
+      
+      const updateObj = { $inc: { reportCount: 1 } };
+      if (validTechs.length > 0) {
+        updateObj.$addToSet = { topTechniques: { $each: validTechs } };
+      }
+      
+      await Lake.findByIdAndUpdate(resolvedLake._id, updateObj);
     }
 
     await AuditLog.create({
