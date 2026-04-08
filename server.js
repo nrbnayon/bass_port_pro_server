@@ -56,6 +56,7 @@ const uploadsDir = path.join(__dirname, 'uploads');
 fs.mkdirSync(path.join(uploadsDir, 'users'),   { recursive: true });
 fs.mkdirSync(path.join(uploadsDir, 'lakes'),   { recursive: true });
 fs.mkdirSync(path.join(uploadsDir, 'catches'), { recursive: true });
+fs.mkdirSync(path.join(uploadsDir, 'fishingReport'), { recursive: true });
 app.use('/uploads', express.static(uploadsDir));
 
 // ── CORS ───────────────────────────────────────────────────────────────────

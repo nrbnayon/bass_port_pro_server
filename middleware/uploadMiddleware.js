@@ -2,7 +2,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-const ALLOWED_DIRS = new Set(['users', 'lakes', 'catches']);
+const ALLOWED_DIRS = new Set(['users', 'lakes', 'catches', 'fishingReport']);
 
 const normalizeDir = (dir) => (ALLOWED_DIRS.has(dir) ? dir : 'users');
 

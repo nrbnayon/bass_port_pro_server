@@ -1,6 +1,7 @@
 const FishingReport = require("../models/FishingReport");
 const Lake = require("../models/Lake");
 const AuditLog = require("../models/AuditLog");
+const path = require("path");
 const {
   success,
   created,
@@ -37,6 +38,27 @@ const VALID_PRESSURE = new Set(["Stable", "Rising", "Falling", ""]);
 const normalizeEnumValue = (value, validValues) =>
   validValues.has(value) ? value : "";
 
+const toPublicUploadPath = (filePath) => {
+  const normalized = filePath.replace(/\\/g, "/");
+  const marker = "/uploads/";
+  const idx = normalized.lastIndexOf(marker);
+  if (idx >= 0) return normalized.slice(idx);
+  return "";
+};
+
+exports.uploadReportImage = async (req, res) => {
+  try {
+    if (!req.file) return badRequest(res, "Report image file is required");
+
+    const url = toPublicUploadPath(req.file.path) ||
+      `/uploads/fishingReport/${path.basename(req.file.path)}`;
+
+    return success(res, { url }, "Report image uploaded successfully");
+  } catch (error) {
+    return serverError(res, error.message);
+  }
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // @desc    Get all fishing reports (paginated, filterable)
 // @route   GET /api/reports
@@ -53,8 +75,8 @@ exports.getReports = async (req, res) => {
       weather = "",
       clarity = "",
       waterLevel = "",
-      sortBy = "fishedAt",
-      order = "desc",
+      sortBy,
+      order,
       user: userId,
       featured,
       status,
@@ -99,7 +121,8 @@ exports.getReports = async (req, res) => {
       "likes",
       "score",
     ];
-    const sortField = SORT_WHITELIST.includes(sortBy) ? sortBy : "fishedAt";
+    const defaultSortField = isAdmin ? "createdAt" : "fishedAt";
+    const sortField = SORT_WHITELIST.includes(sortBy) ? sortBy : defaultSortField;
     const sortOrder = order === "asc" ? 1 : -1;
 
     const skip = (Number(page) - 1) * Number(limit);
@@ -130,6 +153,23 @@ exports.getReports = async (req, res) => {
       likedBy: undefined,
     }));
 
+    let stats;
+    if (isAdmin) {
+      const statusScopeQuery = { ...query };
+      delete statusScopeQuery.status;
+
+      const [approved, pending] = await Promise.all([
+        FishingReport.countDocuments({ ...statusScopeQuery, status: "active" }),
+        FishingReport.countDocuments({ ...statusScopeQuery, status: "pending" }),
+      ]);
+
+      stats = {
+        approved,
+        pending,
+        total: approved + pending,
+      };
+    }
+
     return success(res, {
       reports: result,
       pagination: {
@@ -138,6 +178,7 @@ exports.getReports = async (req, res) => {
         total,
         pages: Math.ceil(total / Number(limit)),
       },
+      ...(stats ? { stats } : {}),
     });
   } catch (error) {
     return serverError(res, error.message);
@@ -222,6 +263,9 @@ exports.createReport = async (req, res) => {
     }
 
     const resolvedSpecies = species || resolvedLake?.species?.[0] || "";
+    const uploadedImage = req.file
+      ? toPublicUploadPath(req.file.path) || `/uploads/fishingReport/${path.basename(req.file.path)}`
+      : "";
 
     const report = await FishingReport.create({
       user: req.user._id,
@@ -230,7 +274,7 @@ exports.createReport = async (req, res) => {
       title: title || "",
       text,
       species: resolvedSpecies,
-      image: image || "",
+      image: uploadedImage || image || "",
       tags: Array.isArray(tags)
         ? tags
         : tags
@@ -309,6 +353,10 @@ exports.updateReport = async (req, res) => {
     updatable.forEach((f) => {
       if (req.body[f] !== undefined) report[f] = req.body[f];
     });
+
+    if (req.file) {
+      report.image = toPublicUploadPath(req.file.path) || `/uploads/fishingReport/${path.basename(req.file.path)}`;
+    }
 
     await report.save();
     const updated = await FishingReport.findById(report._id)
