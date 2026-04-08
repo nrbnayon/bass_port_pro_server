@@ -12,7 +12,7 @@ const createUpload         = require('../middleware/uploadMiddleware');
 const lakeUpload           = createUpload('lakes');
 
 // ── Public ───────────────────────────────────────────────────────────────────
-router.get('/featured', getFeaturedLakes);
+router.get('/featured', optionalProtect, getFeaturedLakes);
 router.get('/names',    optionalProtect, getLakeNames);
 router.get('/',         optionalProtect, getLakes);
 router.get('/:id',      optionalProtect, getLakeById);

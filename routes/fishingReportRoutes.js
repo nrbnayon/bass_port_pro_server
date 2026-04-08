@@ -10,7 +10,7 @@ const createUploadMiddleware = require('../middleware/uploadMiddleware');
 const reportUpload = createUploadMiddleware('fishingReport');
 
 // ── Public ────────────────────────────────────────────────────────────────────
-router.get('/lakes', getReportLakeNames);   // unique lake names for dropdown
+router.get('/lakes', optionalProtect, getReportLakeNames);   // unique lake names for dropdown
 router.get('/',         optionalProtect, getReports);
 
 // ── Admin listing (permission protected) ────────────────────────────────────
@@ -20,7 +20,7 @@ router.get('/admin', protect, requirePermission('view_reports'), getReports);
 router.get('/my', protect, getMyReports);
 router.post('/upload-image', protect, reportUpload.single('image'), uploadReportImage);
 
-router.get('/:id',  getReportById);
+router.get('/:id', optionalProtect, getReportById);
 
 // ── Authenticated mutations ───────────────────────────────────────────────────
 router.post('/',               protect, reportUpload.single('image'), createReport);
