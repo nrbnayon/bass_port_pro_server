@@ -93,8 +93,14 @@ exports.getReports = async (req, res) => {
         query.status = status;
       }
     } else {
-      // Non-admins only see active reports
-      query.status = "active";
+      if (req.user) {
+        query.$or = [
+          { status: "active" },
+          { user: req.user._id, status: "pending" },
+        ];
+      } else {
+        query.status = "active";
+      }
     }
 
     if (search) {
