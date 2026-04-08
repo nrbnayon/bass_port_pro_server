@@ -239,7 +239,7 @@ const getAllUsers = async (req, res) => {
     const sortDir   = sortOrder === 'asc' ? 1 : -1;
 
     // ── Execute query ──
-    const [users, total] = await Promise.all([
+    const [rawUsers, total] = await Promise.all([
       User.find(filter)
         .select('-password -refreshToken -resetPasswordOtp -resetPasswordExpires -verificationOtp -verificationExpires')
         .sort({ [sortField]: sortDir })
@@ -248,6 +248,16 @@ const getAllUsers = async (req, res) => {
         .lean(),
       User.countDocuments(filter),
     ]);
+
+    const users = await Promise.all(
+      rawUsers.map(async (u) => {
+        const reportsCount = await FishingReport.countDocuments({ user: u._id });
+        return {
+          ...u,
+          reports: reportsCount,
+        };
+      })
+    );
 
     return paginatedResponse(res, 'Users fetched successfully', users, {
       page:  pageNum,
@@ -297,8 +307,12 @@ const deleteUserById = async (req, res) => {
 const getUserById = async (req, res) => {
   try {
     const user = await User.findById(req.params.id)
-      .select('-password -refreshToken -resetPasswordOtp -resetPasswordExpires -verificationOtp -verificationExpires');
+      .select('-password -refreshToken -resetPasswordOtp -resetPasswordExpires -verificationOtp -verificationExpires')
+      .lean();
     if (!user) return notFound(res, 'User not found');
+    
+    user.reports = await FishingReport.countDocuments({ user: user._id });
+    
     return successResponse(res, 'User fetched successfully', user);
   } catch (err) {
     return serverError(res, err);
