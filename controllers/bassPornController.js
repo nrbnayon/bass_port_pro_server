@@ -12,6 +12,36 @@ const fs   = require('fs');
 const buildFileUrl = (req, filename, subdir = 'catches') =>
   `${req.protocol}://${req.get('host')}/uploads/${subdir}/${filename}`;
 
+// Helper to inject isFavourite and isLiked status into a list of catches
+const injectUserFlags = async (catches, user) => {
+  if (!user || !catches.length) {
+    return catches.map(c => ({
+      ...c,
+      isFavourite: false,
+      isLiked: false,
+      likedBy: undefined
+    }));
+  }
+
+  const catchIds = catches.map(c => c._id.toString());
+  
+  // Fetch favourites
+  const favs = await UserFavourite.find({ 
+    user: user._id, 
+    targetType: 'catch',
+    catch: { $in: catchIds }
+  }).select('catch').lean();
+  const favouriteIds = new Set(favs.map(f => f.catch?.toString()));
+
+  // Map results
+  return catches.map(c => ({
+    ...c,
+    isFavourite: favouriteIds.has(c._id.toString()),
+    isLiked: c.likedBy?.some(id => id.toString() === user._id.toString()) ?? false,
+    likedBy: undefined, // don't expose full array to client
+  }));
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // @desc    Get all catches (paginated, sortable, filterable)
 // @route   GET /api/bassporn
@@ -84,26 +114,10 @@ exports.getCatches = async (req, res) => {
       };
     }
 
-    // Inject isFavourite + isLiked per item for the authenticated user
-    let favouriteIds = new Set();
-    let likedIds     = new Set();
-    if (req.user) {
-      const favs = await UserFavourite.find({ user: req.user._id, targetType: 'catch' }).select('catch').lean();
-      favouriteIds = new Set(favs.map(f => f.catch?.toString()));
-
-      const liked = catches.filter(c => c.likedBy?.some(id => id.toString() === req.user._id.toString()));
-      likedIds = new Set(liked.map(c => c._id.toString()));
-    }
-
-    const result = catches.map(c => ({
-      ...c,
-      isFavourite: favouriteIds.has(c._id.toString()),
-      isLiked:     likedIds.has(c._id.toString()),
-      likedBy: undefined, // don't expose full array to client
-    }));
+    const updatedCatches = await injectUserFlags(catches, req.user);
 
     return success(res, {
-      catches: result,
+      catches: updatedCatches,
       statusCounts,
       pagination: {
         page: Number(page), limit: Number(limit), total,
@@ -130,7 +144,10 @@ exports.getCatchById = async (req, res) => {
     if (!catchItem) return notFound(res, 'Catch not found');
 
     const isAdmin = ['admin', 'manager'].includes(req.user?.role?.toLowerCase() || '');
-    if (catchItem.status === 'rejected' && !isAdmin) return notFound(res, 'Catch not found');
+    const isOwner = req.user && catchItem.user?._id?.toString() === req.user._id.toString();
+    if (['pending', 'rejected', 'flagged'].includes(catchItem.status) && !isAdmin && !isOwner) {
+      return notFound(res, 'Catch not found');
+    }
 
     let isFavourite = false;
     let isLiked     = false;
@@ -196,7 +213,7 @@ exports.createCatch = async (req, res) => {
       coordinates:     coordinates  || {},
       weatherSnapshot: weatherSnapshot || {},
       image:           imageUrl,
-      status:          'active',
+      status:          'pending',
     });
 
     // Increment lake counter
@@ -369,6 +386,7 @@ exports.toggleFavouriteCatch = async (req, res) => {
 
     if (deleted) {
       isFavourite = false;
+      await BassPorn.findByIdAndUpdate(catchDoc._id, { $inc: { favouriteCount: -1 } });
     } else {
       await UserFavourite.updateOne(
         query,
@@ -376,9 +394,10 @@ exports.toggleFavouriteCatch = async (req, res) => {
         { upsert: true },
       );
       isFavourite = true;
+      await BassPorn.findByIdAndUpdate(catchDoc._id, { $inc: { favouriteCount: 1 } });
     }
 
-    return success(res, { isFavourite }, isFavourite ? 'Added to favourites' : 'Removed from favourites');
+    return success(res, { isFavourite, favouriteCount: catchDoc.favouriteCount + (isFavourite ? 1 : -1) }, isFavourite ? 'Added to favourites' : 'Removed from favourites');
   } catch (error) {
     return serverError(res, error.message);
   }
@@ -404,8 +423,10 @@ exports.getMyCatches = async (req, res) => {
       BassPorn.countDocuments({ user: req.user._id }),
     ]);
 
+    const updatedCatches = await injectUserFlags(catches, req.user);
+
     return success(res, {
-      catches,
+      catches: updatedCatches,
       pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / Number(limit)) },
     });
   } catch (error) {
@@ -433,9 +454,11 @@ exports.getMyFavouriteCatches = async (req, res) => {
       UserFavourite.countDocuments({ user: req.user._id, targetType: 'catch' }),
     ]);
 
-    const catches = favs.map(f => ({ ...f.catch, isFavourite: true }));
+    const catches = favs.map(f => f.catch);
+    const updatedCatches = await injectUserFlags(catches, req.user);
+
     return success(res, {
-      catches,
+      catches: updatedCatches,
       pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / Number(limit)) },
     });
   } catch (error) {

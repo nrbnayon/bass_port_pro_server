@@ -40,9 +40,10 @@ const bassPornSchema = new mongoose.Schema({
   images:   [{ type: String }],                 // additional photos
 
   // ── Social ────────────────────────────────────────────────────────────────
-  likes:      { type: Number, default: 0 },
-  likedBy:    [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-  commentCount: { type: Number, default: 0 },
+   likes:      { type: Number, default: 0 },
+   likedBy:    [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+   favouriteCount: { type: Number, default: 0 },
+   commentCount: { type: Number, default: 0 },
 
   // ── Moderation ────────────────────────────────────────────────────────────
   status:     { type: String, enum: ['active', 'pending', 'rejected', 'flagged'], default: 'active' },
