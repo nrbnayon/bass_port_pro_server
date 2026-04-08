@@ -12,6 +12,24 @@ const fs   = require('fs');
 const buildFileUrl = (req, filename, subdir = 'catches') =>
   `${req.protocol}://${req.get('host')}/uploads/${subdir}/${filename}`;
 
+const toTitleCase = (str = '') =>
+  str
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+
+const parseTechniqueList = (value = '') =>
+  Array.from(
+    new Set(
+      String(value)
+        .split(',')
+        .map(t => toTitleCase(t))
+        .filter(Boolean)
+    )
+  );
+
 // Helper to inject isFavourite and isLiked status into a list of catches
 const injectUserFlags = async (catches, user) => {
   if (!user || !catches.length) {
@@ -181,6 +199,11 @@ exports.createCatch = async (req, res) => {
       return badRequest(res, 'species, weight, technique and lakeName are required');
     }
 
+    const parsedTechniques = parseTechniqueList(technique);
+    if (!parsedTechniques.length) {
+      return badRequest(res, 'At least one valid technique is required');
+    }
+
     // Image is required
     if (!req.file && !req.body.image) {
       return badRequest(res, 'A catch photo is required');
@@ -205,7 +228,7 @@ exports.createCatch = async (req, res) => {
       weight:          Number(weight),
       weightUnit:      weightUnit  || 'lbs',
       length:          length      ? Number(length)  : null,
-      technique,
+      technique:       parsedTechniques.join(', '),
       bait:            bait         || '',
       depth:           depth        || '',
       description:     description  || '',
@@ -216,9 +239,11 @@ exports.createCatch = async (req, res) => {
       status:          'pending',
     });
 
-    // Increment lake counter
+    // Keep lake top techniques enriched from catch uploads.
     if (resolvedLake) {
-      await Lake.findByIdAndUpdate(resolvedLake._id, { $inc: { catchCount: 1 } });
+      await Lake.findByIdAndUpdate(resolvedLake._id, {
+        $addToSet: { topTechniques: { $each: parsedTechniques } }
+      });
     }
 
     await AuditLog.create({
@@ -274,6 +299,13 @@ exports.updateCatch = async (req, res) => {
     }
 
     await catchDoc.save();
+
+    const normalizedTechniques = parseTechniqueList(catchDoc.technique);
+    if (newLake && normalizedTechniques.length) {
+      await Lake.findByIdAndUpdate(newLake, {
+        $addToSet: { topTechniques: { $each: normalizedTechniques } }
+      });
+    }
 
     // Side-effects on Lake counters
     const lakeChanged = oldLake?.toString() !== newLake?.toString();
