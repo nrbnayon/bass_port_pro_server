@@ -144,6 +144,50 @@ exports.getLakeNames = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// @desc    Get authenticated user's favourited lakes
+// @route   GET /api/lakes/favourites
+// @access  Private
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getMyFavouriteLakes = async (req, res) => {
+  try {
+    const { page = 1, limit = 12 } = req.query;
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.max(1, Number(limit) || 12);
+    const skip = (pageNum - 1) * limitNum;
+
+    const [favourites, total] = await Promise.all([
+      UserFavourite.find({ user: req.user._id, targetType: 'lake' })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .populate({
+          path: 'lake',
+          select: '-seasonalPatterns -__v',
+        })
+        .lean(),
+      UserFavourite.countDocuments({ user: req.user._id, targetType: 'lake' }),
+    ]);
+
+    const lakes = favourites
+      .map((f) => f.lake)
+      .filter(Boolean)
+      .map((lake) => ({ ...lake, isFavourite: true }));
+
+    return success(res, {
+      lakes,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum),
+      },
+    });
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // @desc    Get single lake by ID or slug
 // @route   GET /api/lakes/:id
 // @access  Public

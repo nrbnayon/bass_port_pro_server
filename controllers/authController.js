@@ -1,5 +1,8 @@
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
+const BassPorn = require('../models/BassPorn');
+const FishingReport = require('../models/FishingReport');
+const UserFavourite = require('../models/UserFavourite');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const { blacklistToken, isBlacklisted } = require('../utils/tokenBlacklist');
@@ -255,16 +258,62 @@ const logoutUser = async (req, res) => {
 // @access  Private
 const getMyProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('-password -refreshToken');
-    if (user) {
-      res.json({
-        success: true,
-        data: user,
-        message: 'Profile fetched successfully'
-      });
-    } else {
-      res.status(404).json({ success: false, message: 'User not found' });
+    const user = await User.findById(req.user._id).select('-password -refreshToken').lean();
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
+
+    const [catchAgg, reportCount, favouriteLakeDocs, recentCatches] = await Promise.all([
+      BassPorn.aggregate([
+        { $match: { user: req.user._id } },
+        {
+          $group: {
+            _id: null,
+            catches: { $sum: 1 },
+            biggestCatch: { $max: '$weight' },
+            totalWeight: { $sum: '$weight' },
+          },
+        },
+      ]),
+      FishingReport.countDocuments({ user: req.user._id }),
+      UserFavourite.find({ user: req.user._id, targetType: 'lake' })
+        .sort({ createdAt: -1 })
+        .limit(8)
+        .populate({
+          path: 'lake',
+          select: 'name slug state image rating reviewCount description species status',
+          match: { status: { $in: ['active', 'closed'] } },
+        })
+        .lean(),
+      BassPorn.find({ user: req.user._id })
+        .sort({ createdAt: -1 })
+        .limit(6)
+        .populate('lake', 'name slug')
+        .lean(),
+    ]);
+
+    const stats = catchAgg[0] || { catches: 0, biggestCatch: 0, totalWeight: 0 };
+    const favouriteLakes = favouriteLakeDocs
+      .map((f) => f.lake)
+      .filter(Boolean)
+      .map((lake) => ({ ...lake, isFavourite: true }));
+
+    return res.json({
+      success: true,
+      message: 'Profile fetched successfully',
+      data: {
+        ...user,
+        stats: {
+          catches: Number(stats.catches || 0),
+          biggestCatch: Number(stats.biggestCatch || 0),
+          totalWeight: Number(stats.totalWeight || 0),
+          favorites: favouriteLakes.length,
+          reports: Number(reportCount || 0),
+        },
+        favouriteLakes,
+        myCatches: recentCatches,
+      },
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
