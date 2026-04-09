@@ -8,6 +8,7 @@ const BassPorn = require('../models/BassPorn');
 const FishingReport = require('../models/FishingReport');
 const UserFavourite = require('../models/UserFavourite');
 const Lake = require('../models/Lake');
+const { blacklistToken } = require('../utils/tokenBlacklist');
 const {
   successResponse,
   createdResponse,
@@ -17,6 +18,23 @@ const {
   forbidden,
   serverError,
 } = require('../utils/apiResponse');
+
+const normalizeDomain = (domain = '') => domain.trim().replace(/^\./, '').toLowerCase();
+
+const shouldApplyDomainForRequest = (req, configuredDomain) => {
+  if (!configuredDomain) return false;
+
+  const normalized = normalizeDomain(configuredDomain);
+  if (!normalized) return false;
+
+  const requestHost = (req?.hostname || req?.get?.('host') || '')
+    .toString()
+    .split(':')[0]
+    .toLowerCase();
+
+  if (!requestHost) return false;
+  return requestHost === normalized || requestHost.endsWith(`.${normalized}`);
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -190,8 +208,27 @@ const changePassword = async (req, res) => {
     // Hash & save
     const salt         = await bcrypt.genSalt(10);
     user.password      = await bcrypt.hash(new_password, salt);
+    const currentRefreshToken = req.cookies?.refreshToken;
+    if (currentRefreshToken) {
+      await blacklistToken(currentRefreshToken, 'refresh');
+    }
     user.refreshToken  = ''; // invalidate existing refresh tokens
     await user.save();
+
+    if (currentRefreshToken) {
+      const refreshCookieOptions = {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        path: '/',
+      };
+
+      if (shouldApplyDomainForRequest(req, process.env.COOKIE_DOMAIN)) {
+        refreshCookieOptions.domain = normalizeDomain(process.env.COOKIE_DOMAIN);
+      }
+
+      res.clearCookie('refreshToken', refreshCookieOptions);
+    }
 
     return successResponse(res, 'Password changed successfully');
   } catch (err) {

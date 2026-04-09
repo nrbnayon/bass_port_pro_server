@@ -198,32 +198,38 @@ const refreshToken = async (req, res) => {
       return res.status(403).json({ message: 'Forbidden' });
     }
 
-    const user = await User.findOne({ refreshToken: rToken });
+    let decoded;
+    try {
+      decoded = jwt.verify(rToken, process.env.JWT_REFRESH_SECRET || 'refresh_secret');
+    } catch (verifyError) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    const user = await User.findById(decoded.id);
     if (!user) return res.status(403).json({ message: 'Forbidden' });
 
-    jwt.verify(
-      rToken,
-      process.env.JWT_REFRESH_SECRET || 'refresh_secret',
-      (err, decoded) => {
-        if (err || user._id.toString() !== decoded.id) {
-          return res.status(403).json({ message: 'Forbidden' });
-        }
+    if (user.status === 'suspended' || user.status === 'banned' || user.status === 'pending') {
+      return res.status(403).json({ message: 'Oh no! Your account is not active' });
+    }
 
-        if (user.status === 'suspended' || user.status === 'banned' || user.status === 'pending') {
-          return res.status(403).json({ message: 'Oh no! Your account is not active' });
-        }
+    if (user.refreshToken && user.refreshToken !== rToken) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
 
-        const accessToken = generateAccessToken(user._id);
-        const expires_at = Date.now() + 15 * 60 * 1000;
-        
-        res.json({ 
-          message: "Token refreshed successfully",
-          access_token: accessToken,
-          expires_in: 15 * 60 * 1000,
-          expires_at 
-        });
-      }
-    );
+    if (!user.refreshToken) {
+      user.refreshToken = rToken;
+      await user.save();
+    }
+
+    const accessToken = generateAccessToken(user._id);
+    const expires_at = Date.now() + 15 * 60 * 1000;
+
+    res.json({ 
+      message: "Token refreshed successfully",
+      access_token: accessToken,
+      expires_in: 15 * 60 * 1000,
+      expires_at 
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -410,8 +416,17 @@ const changePassword = async (req, res) => {
 
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(new_password, salt);
-    user.refreshToken = ''; 
+    const currentRefreshToken = req.cookies?.refreshToken;
+    if (currentRefreshToken) {
+      await blacklistToken(currentRefreshToken, 'refresh');
+    }
+    user.refreshToken = '';
     await user.save();
+
+    if (currentRefreshToken) {
+      const refreshCookieOptions = buildCookieOptions({ req, httpOnly: true });
+      res.clearCookie('refreshToken', refreshCookieOptions);
+    }
 
     res.json({ success: true, message: 'Password changed successfully' });
   } catch (error) {
