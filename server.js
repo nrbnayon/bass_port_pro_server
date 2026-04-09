@@ -180,10 +180,24 @@ app.use((err, _req, res, _next) => {
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
+  const runBlacklistCleanup = async () => {
+    try {
+      const result = await cleanupBlacklist();
+      if (result?.skipped && result.reason === 'transient_mongo_error') {
+        console.warn('Blacklist cleanup skipped due to transient Mongo connectivity issue.');
+      }
+      if (result?.skipped && result.reason === 'db_not_connected') {
+        console.warn('Blacklist cleanup skipped because database is not connected.');
+      }
+    } catch (e) {
+      console.error('Blacklist cleanup failed:', e.message || e);
+    }
+  };
+
   // Scheduled blacklist cleanup (every hour)
-  cleanupBlacklist().catch(e => console.error('Blacklist cleanup failed:', e));
+  runBlacklistCleanup();
   setInterval(() => {
-    cleanupBlacklist().catch(e => console.error('Blacklist cleanup failed:', e));
+    runBlacklistCleanup();
   }, 60 * 60 * 1000);
 
   // Print network info
