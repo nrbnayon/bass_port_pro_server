@@ -21,7 +21,24 @@ const generateRefreshToken = (id) => {
 
 const isProduction = process.env.NODE_ENV === 'production';
 
-const buildCookieOptions = ({ httpOnly, maxAge }) => {
+const normalizeDomain = (domain = '') => domain.trim().replace(/^\./, '').toLowerCase();
+
+const shouldApplyDomainForRequest = (req, configuredDomain) => {
+  if (!configuredDomain) return false;
+
+  const normalized = normalizeDomain(configuredDomain);
+  if (!normalized) return false;
+
+  const requestHost = (req?.hostname || req?.get?.('host') || '')
+    .toString()
+    .split(':')[0]
+    .toLowerCase();
+
+  if (!requestHost) return false;
+  return requestHost === normalized || requestHost.endsWith(`.${normalized}`);
+};
+
+const buildCookieOptions = ({ req, httpOnly, maxAge }) => {
   const options = {
     httpOnly,
     secure: isProduction,
@@ -33,8 +50,8 @@ const buildCookieOptions = ({ httpOnly, maxAge }) => {
     options.maxAge = maxAge;
   }
 
-  if (process.env.COOKIE_DOMAIN) {
-    options.domain = process.env.COOKIE_DOMAIN;
+  if (shouldApplyDomainForRequest(req, process.env.COOKIE_DOMAIN)) {
+    options.domain = normalizeDomain(process.env.COOKIE_DOMAIN);
   }
 
   if (isProduction) {
@@ -83,6 +100,7 @@ const loginUser = async (req, res) => {
 
       // Send refresh token in httpOnly cookie
       const refreshCookieOptions = buildCookieOptions({
+        req,
         httpOnly: true,
         maxAge: 7 * 24 * 60 * 60 * 1000,
       });
@@ -241,8 +259,8 @@ const logoutUser = async (req, res) => {
     }
   }
 
-  const refreshCookieOptions = buildCookieOptions({ httpOnly: true });
-  const contextCookieOptions = buildCookieOptions({ httpOnly: false });
+  const refreshCookieOptions = buildCookieOptions({ req, httpOnly: true });
+  const contextCookieOptions = buildCookieOptions({ req, httpOnly: false });
 
   res.clearCookie('refreshToken', refreshCookieOptions);
   res.clearCookie('userRole', contextCookieOptions);
