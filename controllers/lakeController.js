@@ -307,6 +307,8 @@ exports.updateLake = async (req, res) => {
   try {
     const lake = await Lake.findById(req.params.id);
     if (!lake) return notFound(res, 'Lake not found');
+    const previousName = lake.name;
+    const previousStatus = lake.status;
 
     const isAdmin = req.user && ['admin', 'manager'].includes(req.user.role);
     const isOwner = lake.submittedBy?.toString() === req.user._id.toString();
@@ -347,14 +349,22 @@ exports.updateLake = async (req, res) => {
     }
 
     // Approval tracking
-    if (req.body.status === 'active' && lake.status !== 'active' && isAdmin) {
+    if (req.body.status === 'active' && previousStatus !== 'active' && isAdmin) {
       lake.approvedBy = req.user._id;
       lake.approvedAt = new Date();
     }
 
     // Recalc slug if name changed
-    if (req.body.name && req.body.name !== lake.name) {
-      lake.slug = req.body.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    if (req.body.name && req.body.name !== previousName) {
+      const nextSlug = req.body.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+
+      const slugConflict = await Lake.findOne({ slug: nextSlug, _id: { $ne: lake._id } }).lean();
+      if (slugConflict) return badRequest(res, 'A lake with this name already exists');
+
+      lake.slug = nextSlug;
     }
 
     await lake.save();

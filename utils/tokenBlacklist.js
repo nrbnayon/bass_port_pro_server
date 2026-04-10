@@ -2,6 +2,9 @@ const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const TokenBlacklist = require('../models/TokenBlacklist');
 
+const ACCESS_TOKEN_FALLBACK_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+const REFRESH_TOKEN_FALLBACK_TTL_MS = 5 * 365 * 24 * 60 * 60 * 1000;
+
 const isMongoConnected = () => mongoose.connection.readyState === 1;
 
 const isRetryableMongoError = (error) => {
@@ -18,7 +21,7 @@ const isRetryableMongoError = (error) => {
   );
 };
 
-const decodeExpiry = (token, fallbackMs = 15 * 60 * 1000) => {
+const decodeExpiry = (token, fallbackMs = ACCESS_TOKEN_FALLBACK_TTL_MS) => {
   try {
     const decoded = jwt.decode(token);
     if (decoded?.exp) {
@@ -34,7 +37,7 @@ const blacklistToken = async (token, type) => {
   if (!token) return;
   if (!isMongoConnected()) return;
 
-  const expiresAt = decodeExpiry(token, type === 'refresh' ? 7 * 24 * 60 * 60 * 1000 : 15 * 60 * 1000);
+  const expiresAt = decodeExpiry(token, type === 'refresh' ? REFRESH_TOKEN_FALLBACK_TTL_MS : ACCESS_TOKEN_FALLBACK_TTL_MS);
 
   try {
     await TokenBlacklist.updateOne(

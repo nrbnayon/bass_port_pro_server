@@ -7,15 +7,20 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const { blacklistToken, isBlacklisted } = require('../utils/tokenBlacklist');
 
+const ACCESS_TOKEN_TTL = '1y';
+const REFRESH_TOKEN_TTL = '5y';
+const ACCESS_TOKEN_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+const REFRESH_TOKEN_TTL_MS = 5 * 365 * 24 * 60 * 60 * 1000;
+
 const generateAccessToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET || 'secret', {
-    expiresIn: '15m',
+    expiresIn: ACCESS_TOKEN_TTL,
   });
 };
 
 const generateRefreshToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_REFRESH_SECRET || 'refresh_secret', {
-    expiresIn: '5y', // 5 years
+    expiresIn: REFRESH_TOKEN_TTL,
   });
 };
 
@@ -102,7 +107,7 @@ const loginUser = async (req, res) => {
       const refreshCookieOptions = buildCookieOptions({
         req,
         httpOnly: true,
-        maxAge: 7 * 24 * 60 * 60 * 1000,
+        maxAge: REFRESH_TOKEN_TTL_MS,
       });
 
       res.cookie('refreshToken', refreshToken, refreshCookieOptions);
@@ -222,12 +227,12 @@ const refreshToken = async (req, res) => {
     }
 
     const accessToken = generateAccessToken(user._id);
-    const expires_at = Date.now() + 15 * 60 * 1000;
+    const expires_at = Date.now() + ACCESS_TOKEN_TTL_MS;
 
     res.json({ 
       message: "Token refreshed successfully",
       access_token: accessToken,
-      expires_in: 15 * 60 * 1000,
+      expires_in: ACCESS_TOKEN_TTL_MS,
       expires_at 
     });
   } catch (error) {
