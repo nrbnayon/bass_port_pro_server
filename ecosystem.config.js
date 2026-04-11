@@ -26,8 +26,6 @@ module.exports = {
       
       // Graceful shutdown: Wait 10 seconds for connections to close
       kill_timeout: 10000,
-      wait_ready: true,
-      listen_timeout: 10000,
       
       // Logging
       merge_logs: true,
@@ -39,8 +37,6 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       min_uptime: 60000,
-      
-      shutdown_with_message: true,
     }
   ],
 
