@@ -28,19 +28,23 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 const normalizeDomain = (domain = '') => domain.trim().replace(/^\./, '').toLowerCase();
 
-const shouldApplyDomainForRequest = (req, configuredDomain) => {
-  if (!configuredDomain) return false;
+const getMatchedDomain = (req, configuredDomains) => {
+  if (!configuredDomains) return null;
 
-  const normalized = normalizeDomain(configuredDomain);
-  if (!normalized) return false;
+  const domains = configuredDomains
+    .split(',')
+    .map(d => normalizeDomain(d))
+    .filter(Boolean);
 
   const requestHost = (req?.hostname || req?.get?.('host') || '')
     .toString()
     .split(':')[0]
     .toLowerCase();
 
-  if (!requestHost) return false;
-  return requestHost === normalized || requestHost.endsWith(`.${normalized}`);
+  if (!requestHost) return null;
+
+  // Find the first domain that the request host is a part of
+  return domains.find(d => requestHost === d || requestHost.endsWith(`.${d}`)) || null;
 };
 
 const buildCookieOptions = ({ req, httpOnly, maxAge }) => {
@@ -55,8 +59,9 @@ const buildCookieOptions = ({ req, httpOnly, maxAge }) => {
     options.maxAge = maxAge;
   }
 
-  if (shouldApplyDomainForRequest(req, process.env.COOKIE_DOMAIN)) {
-    options.domain = normalizeDomain(process.env.COOKIE_DOMAIN);
+  const matchedDomain = getMatchedDomain(req, process.env.COOKIE_DOMAIN);
+  if (matchedDomain) {
+    options.domain = matchedDomain;
   }
 
   if (isProduction) {
