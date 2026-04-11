@@ -128,16 +128,16 @@ app.get("/", (_req, res) => {
     status: "ok",
     message: "BassInsight API is running",
     version: "2.0.0",
-    endpoints: {
-      auth: "/api/auth",
-      users: "/api/users",
-      lakes: "/api/lakes",
-      bassporn: "/api/bassporn",
-      reports: "/api/reports",
-      comments: "/api/comments",
-      contact: "/api/contact",
-      dashboard: "/api/dashboard",
-    },
+    // endpoints: {
+    //   auth: "/api/auth",
+    //   users: "/api/users",
+    //   lakes: "/api/lakes",
+    //   bassporn: "/api/bassporn",
+    //   reports: "/api/reports",
+    //   comments: "/api/comments",
+    //   contact: "/api/contact",
+    //   dashboard: "/api/dashboard",
+    // },
   });
 });
 
