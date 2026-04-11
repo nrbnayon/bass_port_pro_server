@@ -6,6 +6,7 @@ const Comment       = require('../models/Comment');
 const {
   success, created, notFound, badRequest, serverError, forbidden
 } = require('../utils/apiResponse');
+const { MAX_LIKES, getToggleArrayUpdate } = require('../utils/boundedArrays');
 const path = require('path');
 const fs   = require('fs');
 
@@ -387,15 +388,33 @@ exports.toggleLikeCatch = async (req, res) => {
     const hasLiked = catchDoc.likedBy.some(id => id.toString() === userId.toString());
 
     if (hasLiked) {
-      catchDoc.likedBy = catchDoc.likedBy.filter(id => id.toString() !== userId.toString());
-      catchDoc.likes   = Math.max(0, catchDoc.likes - 1);
+      // Remove like - use atomic $pull operation
+      const updated = await BassPorn.findByIdAndUpdate(
+        req.params.id,
+        {
+          $pull: { likedBy: userId },
+          $inc: { likes: -1 }
+        },
+        { new: true }
+      );
+      return success(res, { likes: updated.likes, isLiked: false });
     } else {
-      catchDoc.likedBy.push(userId);
-      catchDoc.likes += 1;
+      // Add like - use atomic $push with $slice to cap array size
+      const updated = await BassPorn.findByIdAndUpdate(
+        req.params.id,
+        {
+          $push: {
+            likedBy: {
+              $each: [userId],
+              $slice: -MAX_LIKES  // Keep only last MAX_LIKES items
+            }
+          },
+          $inc: { likes: 1 }
+        },
+        { new: true }
+      );
+      return success(res, { likes: updated.likes, isLiked: true });
     }
-    await catchDoc.save();
-
-    return success(res, { likes: catchDoc.likes, isLiked: !hasLiked });
   } catch (error) {
     return serverError(res, error.message);
   }

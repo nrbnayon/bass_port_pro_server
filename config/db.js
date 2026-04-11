@@ -16,6 +16,11 @@ const connectDB = async () => {
       family: 4,
     });
 
+    // Remove existing listeners to prevent stacking on reconnects
+    mongoose.connection.removeAllListeners('disconnected');
+    mongoose.connection.removeAllListeners('reconnected');
+    mongoose.connection.removeAllListeners('error');
+
     mongoose.connection.on('disconnected', () => {
       console.warn('[MongoDB] Connection lost. Retrying in background...');
     });

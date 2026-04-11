@@ -5,6 +5,7 @@ const Lake      = require('../models/Lake');
 const {
   success, created, notFound, badRequest, serverError, forbidden
 } = require('../utils/apiResponse');
+const { MAX_LIKES } = require('../utils/boundedArrays');
 
 // ── Helper: validate target and return the model ──────────────────────────────
 const resolveTarget = async (targetType, targetId) => {
@@ -14,11 +15,34 @@ const resolveTarget = async (targetType, targetId) => {
   return null;
 };
 
-// ── Helper: increment commentCount on parent doc ──────────────────────────────
+// ── Helper: increment commentCount on parent doc with error handling ────────
 const incrementCommentCount = async (targetType, targetId, delta = 1) => {
-  if (targetType === 'catch')  await BassPorn.findByIdAndUpdate(targetId, { $inc: { commentCount: delta } });
-  if (targetType === 'report') await FishingReport.findByIdAndUpdate(targetId, { $inc: { commentCount: delta } });
-  if (targetType === 'lake')   await Lake.findByIdAndUpdate(targetId, { $inc: { reviewCount: delta } });
+  try {
+    if (targetType === 'catch') {
+      return await BassPorn.findByIdAndUpdate(
+        targetId,
+        { $inc: { commentCount: delta } },
+        { new: false }
+      );
+    }
+    if (targetType === 'report') {
+      return await FishingReport.findByIdAndUpdate(
+        targetId,
+        { $inc: { commentCount: delta } },
+        { new: false }
+      );
+    }
+    if (targetType === 'lake') {
+      return await Lake.findByIdAndUpdate(
+        targetId,
+        { $inc: { reviewCount: delta } },
+        { new: false }
+      );
+    }
+  } catch (err) {
+    console.error(`Error incrementing count for ${targetType}:`, err.message);
+    throw err;
+  }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -98,14 +122,30 @@ exports.createComment = async (req, res) => {
     };
     commentData[targetType] = targetId;
 
-    const comment = await Comment.create(commentData);
+    let comment;
+    try {
+      comment = await Comment.create(commentData);
+    } catch (createErr) {
+      console.error('Failed to create comment:', createErr.message);
+      return serverError(res, 'Failed to create comment');
+    }
 
-    // Increment parent replyCount if replying
-    if (parentComment) {
-      await Comment.findByIdAndUpdate(parentId, { $inc: { replyCount: 1 } });
-    } else {
-      // Only count top-level comments in the target's counter
-      await incrementCommentCount(targetType, targetId, 1);
+    // Increment parent replyCount if replying, otherwise increment target's counter
+    try {
+      if (parentComment) {
+        await Comment.findByIdAndUpdate(
+          parentId,
+          { $inc: { replyCount: 1 } },
+          { new: false }
+        );
+      } else {
+        // Only count top-level comments in the target's counter
+        await incrementCommentCount(targetType, targetId, 1);
+      }
+    } catch (countErr) {
+      // Log the error but don't fail the request - comment was created successfully
+      console.error('Warning: Failed to increment comment count:', countErr.message);
+      // In production, you might want to trigger an async repair job here
     }
 
     const populated = await Comment.findById(comment._id).populate('user', 'name avatar').lean();
@@ -190,15 +230,33 @@ exports.toggleLikeComment = async (req, res) => {
     const hasLiked = comment.likedBy.some(id => id.toString() === userId.toString());
 
     if (hasLiked) {
-      comment.likedBy = comment.likedBy.filter(id => id.toString() !== userId.toString());
-      comment.likes   = Math.max(0, comment.likes - 1);
+      // Remove like - use atomic $pull operation
+      const updated = await Comment.findByIdAndUpdate(
+        req.params.id,
+        {
+          $pull: { likedBy: userId },
+          $inc: { likes: -1 }
+        },
+        { new: true }
+      );
+      return success(res, { likes: updated.likes, isLiked: false });
     } else {
-      comment.likedBy.push(userId);
-      comment.likes += 1;
+      // Add like - use atomic $push with $slice to cap array size
+      const updated = await Comment.findByIdAndUpdate(
+        req.params.id,
+        {
+          $push: {
+            likedBy: {
+              $each: [userId],
+              $slice: -MAX_LIKES  // Keep only last MAX_LIKES items
+            }
+          },
+          $inc: { likes: 1 }
+        },
+        { new: true }
+      );
+      return success(res, { likes: updated.likes, isLiked: true });
     }
-    await comment.save();
-
-    return success(res, { likes: comment.likes, isLiked: !hasLiked });
   } catch (error) {
     return serverError(res, error.message);
   }

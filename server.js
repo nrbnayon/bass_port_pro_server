@@ -13,6 +13,7 @@ const mongoose = require("mongoose");
 dotenv.config();
 
 const connectDB = require("./config/db");
+const memoryMonitor = require("./utils/memoryMonitor");
 const { cleanupBlacklist } = require("./utils/tokenBlacklist");
 const seedAdmin = require("./scripts/seedAdmin");
 const {
@@ -38,6 +39,8 @@ connectDB()
   .then(async () => {
     await syncUserFavouriteIndexes();
     await seedAdmin();
+    // Start memory monitoring
+    memoryMonitor.start();
   })
   .catch((error) => {
     console.error("Startup DB init failed:", error.message);
@@ -96,6 +99,9 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
+
+// ── Memory monitoring middleware ────────────────────────────────────────────
+app.use(memoryMonitor.middleware());
 
 // ── HTTP logger ────────────────────────────────────────────────────────────
 if (process.env.NODE_ENV !== "production") {
@@ -185,7 +191,12 @@ app.use((err, _req, res, _next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+// Track intervals and resources for graceful shutdown
+let blacklistInterval;
+let keepAliveInterval;
+let keepAliveRequest;
+
+const server = app.listen(PORT, () => {
   const runBlacklistCleanup = async () => {
     try {
       const result = await cleanupBlacklist();
@@ -206,12 +217,13 @@ app.listen(PORT, () => {
 
   // Scheduled blacklist cleanup (every hour)
   runBlacklistCleanup();
-  setInterval(
+  blacklistInterval = setInterval(
     () => {
       runBlacklistCleanup();
     },
     60 * 60 * 1000,
   );
+  blacklistInterval.unref(); // Allow process to exit even if interval is pending
 
   // Print network info
   const ifaces = os.networkInterfaces();
@@ -235,17 +247,95 @@ app.listen(PORT, () => {
     process.env.NODE_ENV === "production" &&
     process.env.RENDER_EXTERNAL_URL
   ) {
-    setInterval(
+    keepAliveInterval = setInterval(
       () => {
-        https
+        // Destroy previous request if it's still hanging
+        if (keepAliveRequest) {
+          try {
+            keepAliveRequest.destroy();
+          } catch (e) {
+            console.debug("Error destroying previous request:", e.message);
+          }
+        }
+        
+        keepAliveRequest = https
           .get(process.env.RENDER_EXTERNAL_URL, (res) => {
             console.log(`Keep-alive ping: ${res.statusCode}`);
+            res.resume();
+            res.on('end', () => {
+              if (keepAliveRequest) {
+                try {
+                  keepAliveRequest.destroy();
+                } catch (e) {
+                  // Socket already destroyed
+                }
+              }
+            });
           })
           .on("error", (err) =>
             console.error("Keep-alive failed:", err.message),
-          );
+          )
+          .on('socket', (socket) => {
+            socket.setKeepAlive(true, 60000);
+          });
+        keepAliveRequest.setTimeout(5000, () => {
+          console.warn("Keep-alive request timeout, destroying");
+          keepAliveRequest.destroy();
+        });
       },
       14 * 60 * 1000,
     );
+    keepAliveInterval.unref();
   }
+  
+  console.log(`Server running. PID: ${process.pid}`);
 });
+
+// Graceful shutdown handler
+const gracefulShutdown = (signal) => {
+  console.log(`\n${signal} received. Starting graceful shutdown...`);
+  
+  // Clear intervals
+  if (blacklistInterval) {
+    clearInterval(blacklistInterval);
+    console.log('✓ Blacklist cleanup interval cleared');
+  }
+  if (keepAliveInterval) {
+    clearInterval(keepAliveInterval);
+    console.log('✓ Keep-alive ping interval cleared');
+  }
+  
+  // Destroy any pending HTTPS requests
+  if (keepAliveRequest) {
+    try {
+      keepAliveRequest.destroy();
+      console.log('✓ Keep-alive request destroyed');
+    } catch (e) {
+      console.debug('Error destroying keep-alive request:', e.message);
+    }
+  }
+  
+  // Close the server
+  server.close(async () => {
+    console.log('✓ HTTP server closed');
+    
+    // Close database connection (Mongoose 9.3.2+ returns Promise)
+    try {
+      await mongoose.connection.close();
+      console.log('✓ Database connection closed');
+      process.exit(0);
+    } catch (err) {
+      console.error('Error closing database:', err.message);
+      process.exit(1);
+    }
+  });
+  
+  // Force exit after 10 seconds if graceful shutdown fails
+  setTimeout(() => {
+    console.error('Forced shutdown after 10 seconds');
+    process.exit(1);
+  }, 10000);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
