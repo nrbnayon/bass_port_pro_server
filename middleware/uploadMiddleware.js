@@ -41,7 +41,7 @@ const createUploadMiddleware = (subdir = 'users') => {
   return multer({
     storage,
     fileFilter,
-    limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB cap
+    limits: { fileSize: 200 * 1024 * 1024 }, // 200 MB cap
   });
 };
 
