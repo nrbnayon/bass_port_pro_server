@@ -91,41 +91,58 @@ const seedAdmin = async () => {
   if (mongoose.connection.readyState === 0) await connectDB();
 
   try {
-    // ── Seed admin user ────────────────────────────────────────────────────
-    const adminEmail = process.env.ADMIN_EMAIL || "admin@bassinsight.com";
-    const adminName = process.env.ADMIN_NAME || "BassInsight Admin";
-    const adminPassword = process.env.ADMIN_PASSWORD || "Admin@123";
+    // ── Seed admin users ───────────────────────────────────────────────────
+    const adminsToSeed = [
+      {
+        email: process.env.ADMIN_EMAIL || "admin@bassinsight.com",
+        name: process.env.ADMIN_NAME || "BassInsight Admin",
+        password: process.env.ADMIN_PASSWORD || "Admin@123",
+      },
+      {
+        email: "bassport@gmail.com",
+        name: "BassPort Admin",
+        password: "bassport@Admin",
+      },
+    ];
 
-    let adminUser = await User.findOne({ email: adminEmail });
+    for (const adminData of adminsToSeed) {
+      let adminUser = await User.findOne({ email: adminData.email });
 
-    if (!adminUser) {
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(adminPassword, salt);
+      if (!adminUser) {
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(adminData.password, salt);
 
-      adminUser = await User.create({
-        name: adminName,
-        email: adminEmail,
-        password: hashedPassword,
-        role: "admin",
-        status: "active",
-        permissions: ADMIN_ATOMS,
-      });
-      console.log("✅ Admin user seeded:", adminEmail);
-    } else {
-      let changed = false;
-      if (adminUser.role !== "admin") {
-        adminUser.role = "admin";
-        changed = true;
-      }
-      if (adminUser.status !== "active") {
-        adminUser.status = "active";
-        changed = true;
-      }
-      if (changed) {
-        await adminUser.save();
-        console.log("🔧 Admin role/status fixed");
+        adminUser = await User.create({
+          name: adminData.name,
+          email: adminData.email,
+          password: hashedPassword,
+          role: "admin",
+          status: "active",
+          permissions: ADMIN_ATOMS,
+        });
+        console.log("✅ Admin user seeded:", adminData.email);
       } else {
-        console.log("ℹ️  Admin user already exists");
+        let changed = false;
+        if (adminUser.role !== "admin") {
+          adminUser.role = "admin";
+          changed = true;
+        }
+        if (adminUser.status !== "active") {
+          adminUser.status = "active";
+          changed = true;
+        }
+        // Also ensure permissions are up to date if they differ
+        if (JSON.stringify(adminUser.permissions) !== JSON.stringify(ADMIN_ATOMS)) {
+          adminUser.permissions = ADMIN_ATOMS;
+          changed = true;
+        }
+
+        if (changed) {
+          await adminUser.save();
+          console.log(`🔧 Admin roles/permissions updated for: ${adminData.email}`);
+        } else {
+          console.log(`ℹ️  Admin user already exists: ${adminData.email}`);
+        }
       }
     }
 
