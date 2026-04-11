@@ -100,7 +100,7 @@ const seedAdmin = async () => {
       },
       {
         email: "bassport@gmail.com",
-        name: "BassPort Admin",
+        name: "BassPort",
         password: "bassport@Admin",
       },
     ];
