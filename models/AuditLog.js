@@ -36,4 +36,7 @@ if (!mongoose.models.None) {
 auditLogSchema.index({ user: 1, createdAt: -1 });
 auditLogSchema.index({ action: 1, createdAt: -1 });
 
+// Automatic cleanup: Delete logs older than 7 days (7 * 24 * 60 * 60 seconds)
+auditLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 604800 });
+
 module.exports = mongoose.model('AuditLog', auditLogSchema);
